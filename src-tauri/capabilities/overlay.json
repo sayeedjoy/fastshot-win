@@ -10,6 +10,7 @@
     "allow-overlay-ready",
     "allow-cancel-capture",
     "allow-export-capture",
+    "allow-extract-text",
     "allow-get-settings"
   ]
 }

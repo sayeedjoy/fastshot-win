@@ -8,6 +8,7 @@ fn main() {
             "overlay_ready",
             "cancel_capture",
             "export_capture",
+            "extract_text",
             "get_settings",
             "update_settings",
             "preview_filename",

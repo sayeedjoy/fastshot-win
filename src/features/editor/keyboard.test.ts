@@ -49,6 +49,8 @@ describe("keyAction", () => {
 
   it("quick save and marker tools", () => {
     expect(keyAction(k("S", { ctrlKey: true, shiftKey: true }), win)).toEqual({ type: "quicksave" });
+    expect(keyAction(k("C", { ctrlKey: true, shiftKey: true }), win)).toEqual({ type: "copytext" });
+    expect(keyAction(k("c", { metaKey: true, shiftKey: true }), mac)).toEqual({ type: "copytext" });
     expect(keyAction(k("s", { metaKey: true, shiftKey: true }), mac)).toEqual({ type: "quicksave" });
     expect(keyAction(k("n"), win)).toEqual({ type: "tool", tool: "step" });
     expect(keyAction(k("h"), win)).toEqual({ type: "tool", tool: "highlight" });

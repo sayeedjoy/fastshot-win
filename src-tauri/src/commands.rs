@@ -343,6 +343,64 @@ pub async fn export_capture(
     }
 }
 
+// -------------------------------------------------------------------- ocr ---
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractArgs {
+    session_id: String,
+    monitor_index: usize,
+    #[serde(flatten)]
+    request: RenderRequest,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractResult {
+    /// `false` when no text was recognised; the capture stays open.
+    found: bool,
+    /// Number of lines copied.
+    lines: usize,
+}
+
+/// Recognise the text in the selection and copy it to the clipboard.
+///
+/// OCR reads the same composited raster as Copy/Save, so anything under a
+/// redaction is already gone before recognition (SEC-01). The overlay stays
+/// up while the OS recogniser runs so "no text found" or an error can be
+/// shown in place; on success the capture ends like an image copy.
+#[tauri::command]
+pub async fn extract_text(app: AppHandle, args: ExtractArgs) -> AppResult<ExtractResult> {
+    let session = app.state::<SessionManager>().get(&args.session_id)?;
+    session.frame(args.monitor_index)?;
+
+    let index = args.monitor_index;
+    let request = args.request;
+    let text = tauri::async_runtime::spawn_blocking(move || -> AppResult<String> {
+        let image = render_export(&session.frames[index].image, &request)
+            .map_err(AppError::InvalidInput)?;
+        crate::ocr::recognize(&image).map_err(AppError::Ocr)
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))??;
+
+    if text.is_empty() {
+        return Ok(ExtractResult {
+            found: false,
+            lines: 0,
+        });
+    }
+    let lines = text.lines().count();
+    app.state::<SessionManager>()
+        .complete_if_active(&args.session_id, || {
+            app.clipboard()
+                .write_text(text)
+                .map_err(|e| AppError::Clipboard(e.to_string()))
+        })?;
+    desktop::end_capture(&app, Some(&args.session_id));
+    Ok(ExtractResult { found: true, lines })
+}
+
 // --------------------------------------------------------------- settings ---
 
 #[tauri::command]

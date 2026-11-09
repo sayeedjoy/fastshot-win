@@ -23,6 +23,8 @@ pub enum AppError {
     #[error("{0}")]
     Shortcut(String),
     #[error("{0}")]
+    Ocr(String),
+    #[error("{0}")]
     Internal(String),
 }
 
@@ -38,6 +40,7 @@ impl AppError {
             AppError::Io(_) => "io_failed",
             AppError::Encode(_) => "encode_failed",
             AppError::Shortcut(_) => "shortcut_failed",
+            AppError::Ocr(_) => "ocr_failed",
             AppError::Internal(_) => "internal",
         }
     }

@@ -4,7 +4,8 @@ import type { PixelRect } from "@/features/editor/model";
 import type { CaptureMode, SessionView } from "@/shared/ipc";
 
 /** Overlay lifecycle (PRD §5.4) as seen by one monitor's overlay. */
-export type Phase = "loading" | "selecting" | "editing" | "exporting" | "done" | "error";
+/** `reading`: OCR is running on the selection (the editor stays visible). */
+export type Phase = "loading" | "selecting" | "editing" | "exporting" | "reading" | "done" | "error";
 
 export interface Notice {
   kind: "success" | "error" | "info";

@@ -19,8 +19,8 @@
 
 FastShot is a native desktop screenshot workflow built for speed and privacy.
 Capture a region, window, or display, add clear annotations, permanently remove
-sensitive information, then copy or save a clean image—all without uploading
-your screen to a server.
+sensitive information, then copy or save a clean image, or copy the text in it,
+all without uploading your screen to a server.
 
 ## Why FastShot?
 
@@ -31,7 +31,7 @@ final image.
 
 | | |
 | --- | --- |
-| **Private by default** | Captures and edits stay on your device. No cloud service or account. |
+| **Private by default** | Captures, edits, and text recognition stay on your device. No cloud service or account. |
 | **Permanent redaction** | Opaque redactions overwrite pixels in a newly rendered image. |
 | **Built for real desktops** | Multi-monitor capture, mixed-DPI coordinates, tray access, and a global shortcut. |
 | **Consistent export** | Clipboard and file output use the same validated native compositor. |
@@ -59,6 +59,17 @@ final image.
 - Save a fresh PNG or JPEG through the native file dialog
 - Avoid source-image metadata and hidden editable layers
 
+### Copy text (OCR)
+
+- Extract the text in a selection with the **Copy text** button or
+  `Ctrl/Cmd+Shift+C`
+- Recognition runs on-device with the operating system's own engine:
+  Windows.Media.Ocr on Windows and Apple Vision on macOS
+- Lines come out in reading order, and fragments on the same row (such as a
+  label and its value) are joined
+- Redacted areas are never read: OCR runs on the final rendered image, after
+  redactions are applied
+
 > [!NOTE]
 > Blur and pixelation are visual effects, not secure redaction. Use an opaque
 > redaction when the underlying content must not be recoverable.
@@ -72,13 +83,14 @@ Captured frame
 Validated crop → Visual effects → Annotations → Opaque redactions
                                                        │
                                                        ▼
-                                            Fresh PNG / JPEG / clipboard
+                                  Fresh PNG / JPEG / clipboard / OCR text
 ```
 
 The frontend sends a declarative render request. Rust validates its crop and
 operations, creates a new raster, applies effects and annotations, and then
 writes redacted regions last with fully opaque pixels. The same compositor is
-used for clipboard and file exports.
+used for clipboard and file exports, and it produces the image that OCR reads,
+so text under a redaction can't be extracted.
 
 Automated security fixtures verify layer ordering, bounds handling,
 clipboard/file pixel parity, metadata-free encoding, and the absence of source
@@ -139,12 +151,13 @@ frontend owns interaction and presentation.
 | **React + TypeScript** | Capture overlay, editor interaction, settings, typed IPC requests |
 | **Tauri** | Window lifecycle, command permissions, tray, shortcuts, dialogs, clipboard |
 | **Rust domain layer** | Capture sessions, coordinate validation, compositing, redaction, encoding |
-| **Operating system** | Display enumeration, screen permission, native windows, file destinations |
+| **Operating system** | Display enumeration, screen permission, native windows, file destinations, text recognition |
 
 ```text
 fastshot/
 ├── src/
 │   ├── components/ui/       Shared React UI primitives
+│   ├── features/capture/    Capture overlay, selection, and action handling
 │   ├── features/editor/     Editor model, state, undo/redo, and tests
 │   ├── shared/ipc.ts        Typed frontend-to-Rust API
 │   └── main.tsx             Window-aware React entry point
@@ -154,6 +167,7 @@ fastshot/
 │       ├── capture/         Display capture and OS permissions
 │       ├── desktop/         Windows, tray, shortcuts, preview protocol
 │       ├── imaging/         Effects, annotations, redaction, encoding
+│       ├── ocr/             On-device text recognition (Windows / macOS)
 │       ├── commands.rs      Validated Tauri command boundary
 │       ├── geometry.rs      DPI conversion and bounds validation
 │       ├── session.rs       In-memory capture lifecycle
@@ -187,13 +201,20 @@ Native capture behavior should also be tested on physical Windows and macOS
 devices, particularly with multiple displays, mixed DPI scaling, clipboard
 targets, and macOS screen-recording permissions.
 
+The OCR test that runs the real operating-system engine is opt-in, because
+build machines may not have an OCR language installed:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -- --ignored ocr_reads_text_but_not_redactions
+```
+
 ## Platform support
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| Windows 11 x64 | Primary target | No screen-capture permission prompt required |
+| Windows 11 x64 | Primary target | No screen-capture permission prompt required. OCR needs an installed OCR language |
 | Windows 10 x64 | Best effort | Compatibility remains under evaluation |
-| macOS 12.3+ | Targeted | Screen Recording permission is required |
+| macOS 12.3+ | Targeted | Screen Recording permission is required. OCR language auto-detection needs macOS 13+ |
 
 Protected, DRM-controlled, minimized, or secure system windows may not be
 capturable because of operating-system restrictions.
@@ -211,6 +232,19 @@ $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 cargo --version
 pnpm tauri dev
 ```
+
+### Copy text reports a missing language pack (Windows)
+
+Windows OCR only reads languages that have an OCR pack installed. Open
+**Settings > Time & language > Language & region**, add or select a language,
+and make sure its optional features include **Optical character recognition**.
+
+### Copy text says "No text found"
+
+Very small, low-contrast, or heavily stylised text may not be recognised. Try
+a tighter selection around the text. Text under a redaction is never read.
+
+### Verifying the toolchain
 
 You can verify the full toolchain with:
 

@@ -9,11 +9,13 @@ import {
   Grid3x3,
   Highlighter,
   ListOrdered,
+  LoaderCircle,
   Minus,
   MousePointer2,
   Pencil,
   Redo2,
   Save,
+  ScanText,
   ShieldCheck,
   Square,
   Type,
@@ -238,7 +240,10 @@ export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSPropertie
 interface ActionBarBodyProps {
   tipSide: Side;
   busy: boolean;
+  /** OCR is running. */
+  reading: boolean;
   onCopy: () => void;
+  onCopyText: () => void;
   onSave: () => void;
   onQuickSave: () => void;
   onCancel: () => void;
@@ -248,7 +253,7 @@ interface ActionBarProps extends ActionBarBodyProps {
   style: React.CSSProperties;
 }
 
-const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, onCopy, onSave, onQuickSave, onCancel }: ActionBarBodyProps) {
+const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, reading, onCopy, onCopyText, onSave, onQuickSave, onCancel }: ActionBarBodyProps) {
   const tool = useEditor((s) => s.tool);
   const note =
     tool === "redact"
@@ -270,9 +275,14 @@ const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, onCopy, onSav
             <Save />
           </Button>
         </Hint>
+        <Hint label="Copy text (OCR)" keys={isMac ? "⌘+⇧+C" : "Ctrl+Shift+C"} side={tipSide}>
+          <Button variant="ghost" size="icon-sm" onClick={onCopyText} disabled={busy} aria-label="Copy text" className={TOOL_CONTROL}>
+            {reading ? <LoaderCircle className="animate-spin" /> : <ScanText />}
+          </Button>
+        </Hint>
         <Hint label="Copy to clipboard" keys={`${mod}+C`} side={tipSide}>
           <Button variant="ghost" size="icon-sm" onClick={onCopy} disabled={busy} aria-label="Copy" className={TOOL_CONTROL}>
-            {busy ? <Check /> : <Copy />}
+            {busy && !reading ? <Check /> : <Copy />}
           </Button>
         </Hint>
         <Separator orientation="vertical" className="mx-0.5 h-5 bg-white/15" />

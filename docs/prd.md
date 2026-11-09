@@ -97,7 +97,7 @@ Users often need to show a small portion of their screen, annotate a bug, or sha
 | Quick-save with custom naming templates | P1 | v1.1 |
 | Launch at login and optional capture delay | P1 | v1.1 |
 | Screenshot history (opt-in, local only) | P2 | Later |
-| OCR / text extraction | P2 | Later |
+| OCR / text extraction (on-device; Windows.Media.Ocr / Apple Vision) | P2 | Implemented |
 | Scrolling capture | P2 | Later |
 | Cloud sharing / integrations | P2 | Later, opt-in |
 

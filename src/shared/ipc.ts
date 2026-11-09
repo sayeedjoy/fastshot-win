@@ -63,6 +63,12 @@ export interface ExportResult {
   height: number;
 }
 
+export interface ExtractResult {
+  /** `false` when no text was recognised; the capture stays open. */
+  found: boolean;
+  lines: number;
+}
+
 export interface AppInfo {
   version: string;
   platform: string;
@@ -109,6 +115,9 @@ export const api = {
   cancelCapture: (sessionId: string) => invoke<void>("cancel_capture", { sessionId }),
   exportCapture: (args: { sessionId: string; monitorIndex: number; destination: Destination } & RenderRequest) =>
     invoke<ExportResult>("export_capture", { args }),
+  /** OCR the rendered selection (redactions applied) and copy the text. */
+  extractText: (args: { sessionId: string; monitorIndex: number } & RenderRequest) =>
+    invoke<ExtractResult>("extract_text", { args }),
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
   browseSaveDirectory: () => invoke<string | null>("browse_save_directory"),

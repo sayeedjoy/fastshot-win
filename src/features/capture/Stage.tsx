@@ -116,22 +116,24 @@ interface StageProps {
   img: HTMLImageElement | null;
   onClaim: () => void;
   onCopy: () => void;
+  onCopyText: () => void;
   onSave: () => void;
   onQuickSave: () => void;
   onCancel: () => void;
 }
 
-export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCancel }: StageProps) {
+export function Stage({ session, img, onClaim, onCopy, onCopyText, onSave, onQuickSave, onCancel }: StageProps) {
   const W = session.monitor.pixelWidth;
   const H = session.monitor.pixelHeight;
 
   // Stable action callbacks so the memoised action bar does not re-render on
   // every frame of a drag (the parent passes fresh closures each render).
-  const actions = useRef({ onCopy, onSave, onQuickSave, onCancel });
+  const actions = useRef({ onCopy, onCopyText, onSave, onQuickSave, onCancel });
   useLayoutEffect(() => {
-    actions.current = { onCopy, onSave, onQuickSave, onCancel };
+    actions.current = { onCopy, onCopyText, onSave, onQuickSave, onCancel };
   });
   const copy = useCallback(() => actions.current.onCopy(), []);
+  const copyText = useCallback(() => actions.current.onCopyText(), []);
   const save = useCallback(() => actions.current.onSave(), []);
   const quickSave = useCallback(() => actions.current.onQuickSave(), []);
   const cancel = useCallback(() => actions.current.onCancel(), []);
@@ -188,7 +190,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   // OS scale factor, so preview and pixels can't disagree (PRD §8.3 "Avoid").
   const sx = W / viewport.w;
   const sy = H / viewport.h;
-  const editing = phase === "editing" || phase === "exporting" || phase === "done";
+  const editing = phase === "editing" || phase === "exporting" || phase === "reading" || phase === "done";
 
   useLayoutEffect(() => {
     const c = columnRef.current;
@@ -607,7 +609,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       {editing && crop ? (
         <>
           <ToolColumn ref={columnRef} style={columnStyle} tipSide={columnTip} />
-          <ActionBar ref={barRef} style={barStyle} tipSide={barTip} busy={phase !== "editing"} onCopy={copy} onSave={save} onQuickSave={quickSave} onCancel={cancel} />
+          <ActionBar ref={barRef} style={barStyle} tipSide={barTip} busy={phase !== "editing"} reading={phase === "reading"} onCopy={copy} onCopyText={copyText} onSave={save} onQuickSave={quickSave} onCancel={cancel} />
         </>
       ) : null}
 

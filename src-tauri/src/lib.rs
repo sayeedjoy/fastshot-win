@@ -5,6 +5,7 @@ pub mod error;
 pub mod geometry;
 pub mod imaging;
 pub mod naming;
+pub mod ocr;
 pub mod session;
 pub mod settings;
 
@@ -40,6 +41,7 @@ pub fn run() {
             commands::overlay_ready,
             commands::cancel_capture,
             commands::export_capture,
+            commands::extract_text,
             commands::get_settings,
             commands::update_settings,
             commands::preview_filename,

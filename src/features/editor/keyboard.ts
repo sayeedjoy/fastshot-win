@@ -3,6 +3,7 @@ import type { Tool } from "./model";
 export type KeyAction =
   | { type: "cancel" }
   | { type: "copy" }
+  | { type: "copytext" }
   | { type: "save" }
   | { type: "quicksave" }
   | { type: "undo" }
@@ -55,7 +56,7 @@ export function keyAction(e: KeyLike, ctx: KeyContext): KeyAction | null {
   if (!ctx.editing) return null;
 
   if (mod && !e.altKey) {
-    if (key === "c" && !e.shiftKey) return { type: "copy" };
+    if (key === "c") return e.shiftKey ? { type: "copytext" } : { type: "copy" };
     if (key === "s") return e.shiftKey ? { type: "quicksave" } : { type: "save" };
     if (key === "z") return e.shiftKey ? { type: "redo" } : { type: "undo" };
     if (key === "y" && !ctx.isMac) return { type: "redo" };

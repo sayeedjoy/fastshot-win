@@ -1,5 +1,5 @@
 import { emit, listen } from "@tauri-apps/api/event";
-import { CircleCheck, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,31 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
     [cancel],
   );
 
+  // OCR runs on the same rendered raster as Copy/Save, so redacted text is
+  // never read. The overlay stays up until the text is on the clipboard.
+  const copyText = useCallback(async () => {
+    if (isTyping(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    const c = useCapture.getState();
+    if (!c.crop || !c.session || c.phase !== "editing") return;
+    c.setPhase("reading");
+    c.setNotice(null);
+    try {
+      const res = await api.extractText({
+        sessionId: c.session.sessionId,
+        monitorIndex: c.session.monitorIndex,
+        ...toRenderRequest(c.crop, useEditor.getState().items),
+      });
+      // On success Rust has already ended the capture and hidden the overlay.
+      if (!res.found) {
+        c.setPhase("editing");
+        c.setNotice({ kind: "info", message: "No text found in the selection." });
+      }
+    } catch (e) {
+      c.setPhase("editing");
+      c.setNotice({ kind: "error", message: errorMessage(e) });
+    }
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const c = useCapture.getState();
@@ -160,6 +185,9 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
           break;
         case "copy":
           void doExport("clipboard");
+          break;
+        case "copytext":
+          void copyText();
           break;
         case "save":
           void doExport("file");
@@ -183,11 +211,11 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cancel, doExport]);
+  }, [cancel, doExport, copyText]);
 
-  // Auto-dismiss error notices.
+  // Auto-dismiss error and info notices.
   useEffect(() => {
-    if (notice?.kind !== "error" || phase === "error") return;
+    if (!notice || notice.kind === "success" || phase === "error") return;
     const t = window.setTimeout(() => useCapture.getState().setNotice(null), 5000);
     return () => window.clearTimeout(t);
   }, [notice, phase]);
@@ -223,14 +251,20 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
                 void api.overlayReady(boot.sessionId, boot.monitorIndex);
               }}
             />
-            {img ? <Stage session={activeSession} img={img} onClaim={claim} onCopy={() => void doExport("clipboard")} onSave={() => void doExport("file")} onQuickSave={() => void doExport("quicksave")} onCancel={cancel} /> : null}
+            {img ? <Stage session={activeSession} img={img} onClaim={claim} onCopy={() => void doExport("clipboard")} onCopyText={() => void copyText()} onSave={() => void doExport("file")} onQuickSave={() => void doExport("quicksave")} onCancel={cancel} /> : null}
           </>
         ) : null}
 
         {notice ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-10 flex justify-center" role="status" aria-live="polite">
             <div className="pointer-events-auto flex max-w-[min(90vw,40rem)] items-center gap-2 rounded-lg border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-xl">
-              {notice.kind === "success" ? <CircleCheck className="text-primary" /> : <TriangleAlert className="text-destructive" />}
+              {notice.kind === "success" ? (
+                <CircleCheck className="text-primary" />
+              ) : notice.kind === "info" ? (
+                <Info className="text-muted-foreground" />
+              ) : (
+                <TriangleAlert className="text-destructive" />
+              )}
               <span className="truncate">{notice.message}</span>
               {phase === "error" ? (
                 <Button size="sm" variant="outline" onClick={cancel}>

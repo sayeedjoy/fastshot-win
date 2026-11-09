@@ -130,6 +130,21 @@ impl SessionManager {
         self.current.lock().unwrap().clone()
     }
 
+    /// Run a short completion step only while `id` is still the active
+    /// session. Holding the session lock makes the check atomic with respect
+    /// to cancellation, which removes the session through [`Self::take`].
+    pub fn complete_if_active<T>(
+        &self,
+        id: &str,
+        complete: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        let current = self.current.lock().unwrap();
+        match &*current {
+            Some(session) if session.id == id => complete(),
+            _ => Err(AppError::SessionNotFound),
+        }
+    }
+
     /// End the session (if `id` matches, or any session if `None`).
     pub fn take(&self, id: Option<&str>) -> Option<Arc<Session>> {
         let mut cur = self.current.lock().unwrap();
@@ -205,6 +220,29 @@ mod tests {
         assert!(mgr.get(&id).is_ok());
         assert!(mgr.take(Some(&id)).is_some());
         assert!(matches!(mgr.get(&id), Err(AppError::SessionNotFound)));
+    }
+
+    #[test]
+    fn completion_only_runs_for_the_active_session() {
+        use std::cell::Cell;
+
+        let mgr = SessionManager::default();
+        let guard = mgr.try_prepare().unwrap();
+        let active = session();
+        let id = active.id.clone();
+        mgr.install(&guard, active);
+        drop(guard);
+
+        assert_eq!(mgr.complete_if_active(&id, || Ok(7)).unwrap(), 7);
+        assert!(mgr.take(Some(&id)).is_some());
+
+        let called = Cell::new(false);
+        let result = mgr.complete_if_active(&id, || {
+            called.set(true);
+            Ok(())
+        });
+        assert!(matches!(result, Err(AppError::SessionNotFound)));
+        assert!(!called.get(), "completion ran after the session ended");
     }
 
     #[test]

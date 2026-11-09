@@ -37,6 +37,22 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSResponder"] }
+# OCR: Apple Vision text recognition (macOS 10.15+).
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSDictionary", "NSError", "NSLocale", "NSString", "NSValue"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRequest", "VNRecognizeTextRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-foundation"] }
+
+[target.'cfg(windows)'.dependencies]
+# OCR: Windows.Media.Ocr (WinRT, Windows 10+). Already in the tree via xcap/tauri.
+windows = { version = "0.62", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Globalization",
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Storage_Streams",
+  "Win32_System_WinRT",
+] }
 
 [profile.release]
 codegen-units = 1

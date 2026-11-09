@@ -47,6 +47,9 @@ The frontend sends a declarative `RenderRequest` (crop + items) through `export_
 
 Blur and pixelate are cosmetic and do not count as redaction. Only the `redact` item type is secure.
 
+### OCR (copy text)
+`extract_text` ([commands.rs](src-tauri/src/commands.rs)) runs `render_export` and hands that raster to [ocr/](src-tauri/src/ocr/), so redacted text is never read. Recognition is on-device: `Windows.Media.Ocr` on Windows ([ocr/winrt.rs](src-tauri/src/ocr/winrt.rs), needs an OCR language pack; small images are upscaled 2x) and Apple Vision on macOS ([ocr/vision.rs](src-tauri/src/ocr/vision.rs)). Both backends return boxes that `ocr::assemble` orders into lines. Text goes to the clipboard and the capture ends; with no text found the overlay stays open. The real-engine test is opt-in: `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored ocr_reads_text_but_not_redactions`. The macOS backend can be type-checked from Windows only in a standalone crate, because a Tauri dependency needs a C compiler for the Apple target.
+
 ### Editor model and TS/Rust parity
 Editor item coordinates are **image pixels relative to the crop's top-left**, the same space the Rust renderer uses. The SVG preview in the overlay has to match the Rust render, so several constants and functions are duplicated across both languages and must stay in sync:
 - [src/features/editor/model.ts](src/features/editor/model.ts) ↔ [render.rs](src-tauri/src/imaging/render.rs) / [text.rs](src-tauri/src/imaging/text.rs): `TEXT_LINE_HEIGHT`, `TEXT_ASCENT`, `HIGHLIGHT_ALPHA`, `STEP_BASELINE`, `stepFontSize`, `stepLabelColor`, `MAX_STEP_NUMBER`
