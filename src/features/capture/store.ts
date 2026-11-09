@@ -21,6 +21,9 @@ interface CaptureState {
   /** Pixel loupe preference (Settings → showMagnifier). */
   magnifier: boolean;
   setMagnifier: (on: boolean) => void;
+  /** Click-to-select the window under the pointer (Settings → autoSelectWindow). */
+  autoSelectWindow: boolean;
+  setAutoSelectWindow: (on: boolean) => void;
   setSession: (s: SessionView) => void;
   setPhase: (p: Phase) => void;
   setMode: (m: CaptureMode) => void;
@@ -37,6 +40,8 @@ export const useCapture = create<CaptureState>((set) => ({
   notice: null,
   magnifier: true,
   setMagnifier: (magnifier) => set({ magnifier }),
+  autoSelectWindow: true,
+  setAutoSelectWindow: (autoSelectWindow) => set({ autoSelectWindow }),
   setSession: (session) => set({ session, mode: session.mode }),
   setPhase: (phase) => set({ phase }),
   setMode: (mode) => set({ mode }),

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- macOS menu-bar template glyph: black + alpha only; the system tints it. -->
+  <g fill="none" stroke="#000000" stroke-width="104" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M100 330 V190 Q100 100 190 100 H330"/>
+    <path d="M694 100 H834 Q924 100 924 190 V330"/>
+    <path d="M924 694 V834 Q924 924 834 924 H694"/>
+    <path d="M330 924 H190 Q100 924 100 834 V694"/>
+  </g>
+  <path transform="translate(520 512) scale(1.3) translate(-520 -512)"
+        d="M574 300 L376 560 H500 L456 724 L664 452 H536 Z"
+        fill="#000000" stroke="#000000" stroke-width="24" stroke-linejoin="round"/>
+</svg>

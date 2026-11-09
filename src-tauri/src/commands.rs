@@ -454,14 +454,8 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
 }
 
 #[tauri::command]
-pub fn begin_capture(app: AppHandle, mode: Option<CaptureMode>, delay_secs: u32) -> AppResult<()> {
-    if delay_secs > desktop::MAX_DELAY_SECS {
-        return Err(AppError::InvalidInput(format!(
-            "Capture delay cannot exceed {} seconds.",
-            desktop::MAX_DELAY_SECS
-        )));
-    }
-    desktop::trigger_delayed_capture(&app, mode, Duration::ZERO, delay_secs);
+pub fn begin_capture(app: AppHandle, mode: Option<CaptureMode>) -> AppResult<()> {
+    desktop::trigger_capture(&app, mode, Duration::ZERO);
     Ok(())
 }
 

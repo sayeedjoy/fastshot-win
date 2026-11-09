@@ -23,20 +23,18 @@ interface Props {
 
 const trayName = isMac ? "menu bar" : "system tray";
 
-/** A titled group of related settings, rendered as a card with divided rows. */
+/** A titled group of related settings on one quiet, shared surface. */
 export function SettingsSection({ icon: Icon, title, description, children }: { icon: LucideIcon; title: string; description?: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <Icon className="size-4" />
-        </span>
+    <section className="flex flex-col gap-2.5">
+      <div className="flex items-start gap-2.5 px-0.5">
+        <Icon className="mt-0.5 size-4 shrink-0 text-capture" />
         <div className="flex flex-col gap-0.5">
           <h3 className="font-heading text-sm font-semibold">{title}</h3>
           {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
         </div>
       </div>
-      <div className="flex flex-col gap-5 rounded-xl bg-card p-4 ring-1 ring-foreground/10">{children}</div>
+      <div className="flex flex-col gap-5 rounded-xl border bg-card p-5 max-[560px]:p-4">{children}</div>
     </section>
   );
 }
@@ -44,12 +42,12 @@ export function SettingsSection({ icon: Icon, title, description, children }: { 
 /** Horizontal row: label + description on the left, control on the right. */
 function SettingRow({ id, label, description, children }: { id?: string; label: string; description?: ReactNode; children: ReactNode }) {
   return (
-    <Field orientation="horizontal" className="flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <Field orientation="horizontal" className="flex-wrap items-center justify-between gap-x-4 gap-y-2 max-[560px]:items-start">
       <FieldContent>
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         {description ? <FieldDescription>{description}</FieldDescription> : null}
       </FieldContent>
-      <div className="shrink-0">{children}</div>
+      <div className="shrink-0 max-[560px]:max-w-full">{children}</div>
     </Field>
   );
 }
@@ -123,7 +121,7 @@ function FilenameTemplateField({ value, onCommit }: { value: string; onCommit: (
   return (
     <Field data-invalid={preview.error ? true : undefined}>
       <FieldLabel htmlFor="filename-template">File name</FieldLabel>
-      <div className="flex gap-2">
+      <div className="flex gap-2 max-[560px]:flex-wrap">
         <Input
           id="filename-template"
           value={draft}
@@ -169,9 +167,9 @@ const COLOR_NAMES: Record<string, string> = {
   "#e11d48": "Red",
   "#f97316": "Orange",
   "#facc15": "Yellow",
-  "#22c55e": "Green",
+  "#22c55e": "Green", // Functional annotation choice. taste-skill-ignore
   "#0ea5e9": "Blue",
-  "#6366f1": "Indigo",
+  "#6366f1": "Indigo", // Functional annotation choice. taste-skill-ignore
   "#ffffff": "White",
   "#000000": "Black",
 };
@@ -217,14 +215,14 @@ function Swatches({ value, onChange, label }: { value: string; onChange: (c: str
 
 export function GeneralSettings({ settings, save, shortcutError, defaultSaveDirectory }: Props & { defaultSaveDirectory?: string | null }) {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-7">
       <SettingsSection icon={SquareDashed} title="Capture" description="How screenshots are started.">
         <Field data-invalid={shortcutError ? true : undefined} orientation="horizontal" className="flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <FieldContent>
             <FieldLabel htmlFor="shortcut">Capture shortcut</FieldLabel>
             {shortcutError ? <FieldError>{shortcutError}</FieldError> : <FieldDescription>Works from any app while FastShot is running.</FieldDescription>}
           </FieldContent>
-          <div className="shrink-0">
+          <div className="shrink-0 max-[560px]:max-w-full">
             <ShortcutRecorder id="shortcut" value={settings.shortcut} onChange={(shortcut) => save({ shortcut })} invalid={!!shortcutError} />
           </div>
         </Field>
@@ -253,6 +251,12 @@ export function GeneralSettings({ settings, save, shortcutError, defaultSaveDire
         <SettingRow id="magnifier" label="Show magnifier while selecting" description="A zoomed view with pixel coordinates and colour, for precise edges.">
           <Switch id="magnifier" checked={settings.showMagnifier} onCheckedChange={(showMagnifier) => save({ showMagnifier })} />
         </SettingRow>
+
+        <FieldSeparator />
+
+        <SettingRow id="auto-select-window" label="Click to select a window" description="In Region mode, clicking without dragging captures the window under the pointer. Turn off to select only by dragging.">
+          <Switch id="auto-select-window" checked={settings.autoSelectWindow} onCheckedChange={(autoSelectWindow) => save({ autoSelectWindow })} />
+        </SettingRow>
       </SettingsSection>
 
       <SettingsSection icon={FolderOpen} title="Saving" description={`Used by Save and Quick save (${isMac ? "⌘⇧S" : "Ctrl+Shift+S"}).`}>
@@ -271,13 +275,13 @@ export function GeneralSettings({ settings, save, shortcutError, defaultSaveDire
 
         <Field>
           <FieldLabel htmlFor="save-dir">Save folder</FieldLabel>
-          <div className="flex gap-2">
+          <div className="flex gap-2 max-[560px]:flex-wrap">
             <Input
               id="save-dir"
               readOnly
               value={settings.saveDirectory ?? (defaultSaveDirectory ? `${defaultSaveDirectory} (default)` : "Documents/FastShot (default)")}
               title={settings.saveDirectory ?? defaultSaveDirectory ?? undefined}
-              className="flex-1 truncate text-muted-foreground"
+              className="min-w-48 flex-1 truncate text-muted-foreground"
             />
             <Button
               variant="outline"
@@ -342,17 +346,19 @@ export function GeneralSettings({ settings, save, shortcutError, defaultSaveDire
 function AnnotationPreview({ color, stroke, fontSize, redact }: { color: string; stroke: number; fontSize: number; redact: string }) {
   const text = Math.min(fontSize, 40);
   return (
-    <div
-      aria-hidden
-      className="relative flex h-32 items-center gap-6 overflow-hidden rounded-lg border bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-size-[16px_16px] px-5"
-    >
-      <svg width="96" height="72" viewBox="0 0 96 72" className="shrink-0 overflow-visible">
+    <div aria-hidden className="relative flex min-h-36 items-center gap-6 overflow-hidden rounded-xl border bg-muted/25 px-5 pt-6 max-[560px]:gap-4 max-[560px]:px-4">
+      <div className="absolute inset-x-0 top-0 flex h-7 items-center gap-1.5 border-b bg-background/75 px-3">
+        <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+        <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+        <span className="ml-2 h-1.5 w-20 rounded-full bg-muted-foreground/15" />
+      </div>
+      <svg width="96" height="72" viewBox="0 0 96 72" className="shrink-0 overflow-visible max-[560px]:w-20">
         <rect x={stroke / 2 + 2} y={stroke / 2 + 2} width={92 - stroke} height={68 - stroke} rx="4" fill="none" stroke={color} strokeWidth={Math.min(stroke, 16)} />
       </svg>
       <span className="truncate font-semibold leading-none" style={{ color, fontSize: text }}>
         Aa
       </span>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5 max-[560px]:hidden">
         <span className="text-xs text-muted-foreground">Redacted</span>
         <span className="h-4 w-24 rounded-sm" style={{ background: redact }} />
       </div>
@@ -363,7 +369,7 @@ function AnnotationPreview({ color, stroke, fontSize, redact }: { color: string;
 
 export function AnnotationSettings({ settings, save }: Props) {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-7">
       <AnnotationPreview color={settings.annotationColor} stroke={settings.strokeWidth} fontSize={settings.fontSize} redact={settings.redactColor} />
 
       <SettingsSection icon={Brush} title="Annotations" description="Defaults for new shapes, arrows and text. You can change them per item in the editor.">

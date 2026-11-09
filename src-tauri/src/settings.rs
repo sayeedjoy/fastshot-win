@@ -45,6 +45,9 @@ pub struct Settings {
     pub filename_template: String,
     /// Pixel loupe while selecting / resizing a region.
     pub show_magnifier: bool,
+    /// In Region mode, a click without dragging selects the window under the
+    /// pointer. Off: only a drag makes a selection.
+    pub auto_select_window: bool,
     /// Mirrors the OS login-item state; the OS is the source of truth.
     pub launch_at_login: bool,
 }
@@ -66,6 +69,7 @@ impl Default for Settings {
             onboarding_complete: false,
             filename_template: naming::DEFAULT_TEMPLATE.into(),
             show_magnifier: true,
+            auto_select_window: true,
             launch_at_login: false,
         }
     }

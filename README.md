@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/favicon.png" alt="FastShot logo" width="96" height="96" />
+  <img src="src-tauri/icons/logo.svg" alt="FastShot logo" width="96" height="96" />
 
   # FastShot
 

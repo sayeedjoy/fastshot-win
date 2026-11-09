@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { forwardRef } from "react";
+import { forwardRef, memo } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -15,7 +15,6 @@ import {
   Redo2,
   Save,
   ShieldCheck,
-  Sparkles,
   Square,
   Type,
   Undo2,
@@ -62,7 +61,9 @@ const EFFECTS: { tool: Tool; label: string; icon: Icon }[] = [
 
 const mod = isMac ? "⌘" : "Ctrl";
 
-const PANEL = "rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl";
+const PANEL = "rounded-md border border-overlay-panel-border bg-overlay-panel p-1 text-overlay-panel-foreground shadow-[0_2px_8px_rgb(0_0_0/0.22)]";
+const TOOL_CONTROL =
+  "text-overlay-panel-foreground hover:bg-overlay-panel-hover hover:text-white focus-visible:border-sky-200/60 focus-visible:ring-sky-200/25 data-[state=on]:bg-overlay-panel-hover data-[state=on]:text-sky-100 aria-pressed:bg-overlay-panel-hover";
 
 function Hint({ label, keys, side, children }: { label: string; keys?: string; side: Side; children: React.ReactNode }) {
   return (
@@ -145,7 +146,9 @@ function StylePanel() {
 const stop = (e: React.PointerEvent) => e.stopPropagation();
 
 /** Vertical drawing-tool column, docked beside the selection. */
-export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSProperties; tipSide: Side }>(function ToolColumn({ style, tipSide }, ref) {
+// Each toolbar is a thin positioned shell around memoised contents: while
+// the selection is dragged only the shell's transform changes per frame.
+const ToolColumnBody = memo(function ToolColumnBody({ tipSide }: { tipSide: Side }) {
   const tool = useEditor((s) => s.tool);
   const setTool = useEditor((s) => s.setTool);
   const canUndo = useEditor((s) => s.past.length > 0);
@@ -158,11 +161,11 @@ export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSPropertie
   const onTool = (v: string) => v && setTool(v as Tool);
 
   return (
-    <div ref={ref} role="toolbar" aria-orientation="vertical" aria-label="Drawing tools" className={cn("absolute flex flex-col items-center gap-0.5", PANEL)} style={style} onPointerDown={stop}>
+    <>
       <ToggleGroup type="single" size="sm" spacing={0.5} orientation="vertical" value={effectActive ? "" : tool} onValueChange={onTool} aria-label="Tool">
         {TOOLS.map(({ tool: t, label, icon: I }) => (
           <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]} side={tipSide}>
-            <ToggleGroupItem value={t} aria-label={label} className="size-7 min-w-0 p-0">
+            <ToggleGroupItem value={t} aria-label={label} className={cn("size-7 min-w-0 p-0", TOOL_CONTROL)}>
               <I />
             </ToggleGroupItem>
           </Hint>
@@ -172,8 +175,8 @@ export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSPropertie
       <Popover>
         <Hint label="Blur & pixelate" side={tipSide}>
           <PopoverTrigger asChild>
-            <Button variant={effectActive ? "secondary" : "ghost"} size="icon-sm" aria-label="Effects">
-              {effectActive ? <effectActive.icon /> : <Sparkles />}
+            <Button variant="ghost" size="icon-sm" aria-label="Effects" className={cn(TOOL_CONTROL, effectActive && "bg-overlay-panel-hover text-white")}>
+              {effectActive ? <effectActive.icon /> : <Droplets />}
             </Button>
           </PopoverTrigger>
         </Hint>
@@ -198,8 +201,8 @@ export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSPropertie
       <Popover>
         <Hint label="Colour & size" side={tipSide}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Colour and size">
-              <span className="size-4 rounded-sm border border-border" style={{ background: swatch }} />
+            <Button variant="ghost" size="icon-sm" aria-label="Colour and size" className={TOOL_CONTROL}>
+              <span className="size-4 rounded-sm border border-white/20" style={{ background: swatch }} />
             </Button>
           </PopoverTrigger>
         </Hint>
@@ -208,24 +211,31 @@ export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSPropertie
         </PopoverContent>
       </Popover>
 
-      <Separator className="my-0.5 w-5" />
+      <Separator className="my-0.5 w-5 bg-white/15" />
 
       <Hint label="Undo" keys={`${mod}+Z`} side={tipSide}>
-        <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} aria-label="Undo">
+        <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} aria-label="Undo" className={TOOL_CONTROL}>
           <Undo2 />
         </Button>
       </Hint>
       <Hint label="Redo" keys={isMac ? "⌘+⇧+Z" : "Ctrl+Y"} side={tipSide}>
-        <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} aria-label="Redo">
+        <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} aria-label="Redo" className={TOOL_CONTROL}>
           <Redo2 />
         </Button>
       </Hint>
+    </>
+  );
+});
+
+export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSProperties; tipSide: Side }>(function ToolColumn({ style, tipSide }, ref) {
+  return (
+    <div ref={ref} role="toolbar" aria-orientation="vertical" aria-label="Drawing tools" className={cn("absolute flex flex-col items-center gap-0.5", PANEL)} style={style} onPointerDown={stop}>
+      <ToolColumnBody tipSide={tipSide} />
     </div>
   );
 });
 
-interface ActionBarProps {
-  style: React.CSSProperties;
+interface ActionBarBodyProps {
   tipSide: Side;
   busy: boolean;
   onCopy: () => void;
@@ -234,8 +244,11 @@ interface ActionBarProps {
   onCancel: () => void;
 }
 
-/** Horizontal output-action bar, docked under the selection's right edge. */
-export const ActionBar = forwardRef<HTMLDivElement, ActionBarProps>(function ActionBar({ style, tipSide, busy, onCopy, onSave, onQuickSave, onCancel }, ref) {
+interface ActionBarProps extends ActionBarBodyProps {
+  style: React.CSSProperties;
+}
+
+const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, onCopy, onSave, onQuickSave, onCancel }: ActionBarBodyProps) {
   const tool = useEditor((s) => s.tool);
   const note =
     tool === "redact"
@@ -245,26 +258,26 @@ export const ActionBar = forwardRef<HTMLDivElement, ActionBarProps>(function Act
         : null;
 
   return (
-    <div ref={ref} className="absolute" style={style} onPointerDown={stop}>
+    <>
       <div role="toolbar" aria-label="Screenshot actions" className={cn("flex items-center gap-0.5", PANEL)}>
         <Hint label="Quick save to your default folder" keys={isMac ? "⌘+⇧+S" : "Ctrl+Shift+S"} side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onQuickSave} disabled={busy} aria-label="Quick save">
+          <Button variant="ghost" size="icon-sm" onClick={onQuickSave} disabled={busy} aria-label="Quick save" className={TOOL_CONTROL}>
             <Zap />
           </Button>
         </Hint>
         <Hint label="Save as…" keys={`${mod}+S`} side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onSave} disabled={busy} aria-label="Save as">
+          <Button variant="ghost" size="icon-sm" onClick={onSave} disabled={busy} aria-label="Save as" className={TOOL_CONTROL}>
             <Save />
           </Button>
         </Hint>
         <Hint label="Copy to clipboard" keys={`${mod}+C`} side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onCopy} disabled={busy} aria-label="Copy">
+          <Button variant="ghost" size="icon-sm" onClick={onCopy} disabled={busy} aria-label="Copy" className={TOOL_CONTROL}>
             {busy ? <Check /> : <Copy />}
           </Button>
         </Hint>
-        <Separator orientation="vertical" className="mx-0.5 h-5" />
+        <Separator orientation="vertical" className="mx-0.5 h-5 bg-white/15" />
         <Hint label="Close" keys="Esc" side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Close" className="text-sky-600 hover:text-sky-700 dark:text-sky-400">
+          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Close" className={cn(TOOL_CONTROL, "text-sky-200 hover:text-white")}>
             <X />
           </Button>
         </Hint>
@@ -272,6 +285,15 @@ export const ActionBar = forwardRef<HTMLDivElement, ActionBarProps>(function Act
       {note ? (
         <p className="absolute top-full right-0 mt-1.5 w-max max-w-80 rounded-md bg-popover/95 px-2 py-1 text-xs text-popover-foreground shadow">{note}</p>
       ) : null}
+    </>
+  );
+});
+
+/** Horizontal output-action bar, docked under the selection's right edge. */
+export const ActionBar = forwardRef<HTMLDivElement, ActionBarProps>(function ActionBar({ style, ...body }, ref) {
+  return (
+    <div ref={ref} className="absolute" style={style} onPointerDown={stop}>
+      <ActionBarBody {...body} />
     </div>
   );
 });

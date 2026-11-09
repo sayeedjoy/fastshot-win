@@ -60,6 +60,7 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
         if (!alive) return;
         setThemePreference(prefs.theme);
         useCapture.getState().setMagnifier(prefs.showMagnifier);
+        useCapture.getState().setAutoSelectWindow(prefs.autoSelectWindow);
         // Settings load independently of the frozen frame. Merge the defaults
         // without resetting items that the user may already have drawn.
         useEditor.setState((state) => ({

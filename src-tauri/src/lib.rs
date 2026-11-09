@@ -11,7 +11,7 @@ pub mod settings;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 use desktop::windows::{self, MainView, show_main};
-use desktop::{autostart, protocol, shortcut, tray};
+use desktop::{app_menu, autostart, protocol, shortcut, tray};
 use session::SessionManager;
 use settings::SettingsState;
 
@@ -60,6 +60,7 @@ pub fn run() {
             // A conflict is recorded and shown in Settings; startup continues.
             let _ = shortcut::apply(&handle, &prefs.shortcut, None);
             tray::create(&handle)?;
+            app_menu::install(&handle)?;
 
             // Launched by the OS at login: stay quiet in the tray unless the
             // shortcut is broken (onboarding waits for a manual launch).
@@ -88,6 +89,7 @@ pub fn run() {
                     // Stay in the tray (SYS-01).
                     api.prevent_close();
                     let _ = window.hide();
+                    app_menu::set_foreground(window.app_handle(), false);
                 }
             }
             WindowEvent::Destroyed if windows::is_overlay(window.label()) => {

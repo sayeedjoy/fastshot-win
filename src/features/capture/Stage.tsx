@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { HitArea, ItemShape, type PreviewSource } from "@/features/editor/ItemShape";
 import { TextEditor } from "@/features/editor/TextEditor";
@@ -25,7 +25,9 @@ import { ModeBar } from "./ModeBar";
 import { snapCrop, useCapture, windowAt } from "./store";
 
 type Gesture =
-  | { kind: "region"; start: Point }
+  // `prev`: the selection that was active when a new drag began outside it.
+  // It is kept until the drag is big enough to count, and restored otherwise.
+  | { kind: "region"; start: Point; prev?: PixelRect }
   | { kind: "pick"; start: Point }
   | { kind: "move-crop"; start: Point; orig: PixelRect }
   | { kind: "resize-crop"; handle: Handle; orig: PixelRect }
@@ -123,6 +125,17 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   const W = session.monitor.pixelWidth;
   const H = session.monitor.pixelHeight;
 
+  // Stable action callbacks so the memoised action bar does not re-render on
+  // every frame of a drag (the parent passes fresh closures each render).
+  const actions = useRef({ onCopy, onSave, onQuickSave, onCancel });
+  useLayoutEffect(() => {
+    actions.current = { onCopy, onSave, onQuickSave, onCancel };
+  });
+  const copy = useCallback(() => actions.current.onCopy(), []);
+  const save = useCallback(() => actions.current.onSave(), []);
+  const quickSave = useCallback(() => actions.current.onQuickSave(), []);
+  const cancel = useCallback(() => actions.current.onCancel(), []);
+
   const phase = useCapture((s) => s.phase);
   const mode = useCapture((s) => s.mode);
   const crop = useCapture((s) => s.crop);
@@ -147,6 +160,10 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   const [moveOffset, setMoveOffset] = useState<{ id: string; dx: number; dy: number } | null>(null);
   // Crop as it was when a resize began; annotations stay pinned to it on screen.
   const [resizeOrig, setResizeOrig] = useState<PixelRect | null>(null);
+  // Crop as it was when a move began. Blur/pixelate previews keep sampling
+  // from it during the drag (they are costly to recompute every frame) and
+  // refresh once on release.
+  const [moveOrig, setMoveOrig] = useState<PixelRect | null>(null);
   const [textEdit, setTextEdit] = useState<{ item: ItemOf<"text">; isNew: boolean } | null>(null);
   const gesture = useRef<Gesture | null>(null);
   const moveFrame = useRef<number | null>(null);
@@ -185,9 +202,12 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
     Math.min(H, Math.max(0, e.clientY * sy)),
   ];
 
+  // While resizing, annotations stay pinned on screen, so the start crop is
+  // exactly right; while moving, the previews ride along until release.
+  const previewCrop = resizeOrig ?? moveOrig ?? crop;
   const src: PreviewSource = useMemo(
-    () => ({ img, url: session.previewUrl, imageWidth: W, imageHeight: H, crop: crop ?? { x: 0, y: 0, width: W, height: H } }),
-    [img, session.previewUrl, W, H, crop],
+    () => ({ img, url: session.previewUrl, imageWidth: W, imageHeight: H, crop: previewCrop ?? { x: 0, y: 0, width: W, height: H } }),
+    [img, session.previewUrl, W, H, previewCrop],
   );
 
   const pickAt = (p: Point): PixelRect | null => (mode === "display" ? { x: 0, y: 0, width: W, height: H } : windowAt(session.windows, p[0], p[1]));
@@ -200,11 +220,10 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
     setPhase("editing");
   };
 
+  // A press outside the selection may start a new one, but the current
+  // selection stays until the drag is at least MIN_REGION; a click never hides it.
   const restartRegion = (p: Point, e: ReactPointerEvent) => {
-    setCrop(null);
-    setPhase("selecting");
-    gesture.current = { kind: "region", start: p };
-    setRegionDraft({ x: p[0], y: p[1], width: 0, height: 0 });
+    gesture.current = { kind: "region", start: p, prev: crop ?? undefined };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
@@ -258,6 +277,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
         // Drag empty space inside the area to move it (annotations ride along).
         ed.select(null);
         gesture.current = { kind: "move-crop", start: p, orig: crop };
+        setMoveOrig(crop);
       } else if (empty) {
         restartRegion(p, e);
         return;
@@ -301,9 +321,16 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       return;
     }
     switch (g.kind) {
-      case "region":
-        setRegionDraft(rectFromPoints(g.start, p));
+      case "region": {
+        const r = rectFromPoints(g.start, p);
+        if (g.prev && useCapture.getState().crop) {
+          if (r.width < MIN_REGION || r.height < MIN_REGION) break;
+          setCrop(null);
+          setPhase("selecting");
+        }
+        setRegionDraft(r);
         break;
+      }
       case "pick":
         setHover(pickAt(p));
         break;
@@ -362,10 +389,14 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
         setRegionDraft(null);
         if (r.width >= MIN_REGION && r.height >= MIN_REGION) {
           beginEditing(r);
+        } else if (g.prev) {
+          // Just a click (or a tiny drag) outside the selection: keep it.
+          setCrop(g.prev);
+          setPhase("editing");
         } else {
           // A plain click selects the window under the pointer (zero-area
-          // drags are otherwise rejected, CAP-02).
-          const w = windowAt(session.windows, p[0], p[1]);
+          // drags are otherwise rejected, CAP-02), unless turned off in Settings.
+          const w = useCapture.getState().autoSelectWindow ? windowAt(session.windows, p[0], p[1]) : null;
           if (w) beginEditing(w);
         }
         break;
@@ -391,6 +422,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
         break;
       }
       case "move-crop":
+        setMoveOrig(null);
         break;
       case "resize-crop": {
         setPointer(null);
@@ -434,6 +466,20 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   const selected = items.find((i) => i.id === selectedId);
   const renderItem = (i: Item) => (moveOffset?.id === i.id ? translateItem(i, moveOffset.dx, moveOffset.dy) : i);
   const hitEnabled = tool === "select" || tool === "text";
+  // Crop-relative, so a selection drag never needs to re-measure them.
+  const hitAreas = useMemo(
+    () => (
+      <g>
+        {items
+          .filter((i) => tool === "select" || i.type === "text")
+          .map((i) => {
+            const it = moveOffset?.id === i.id ? translateItem(i, moveOffset.dx, moveOffset.dy) : i;
+            return <HitArea key={i.id} item={it} bounds={itemBounds(it, measureText)} scale={sx} />;
+          })}
+      </g>
+    ),
+    [items, tool, moveOffset, sx],
+  );
   const shift = resizeOrig && crop ? `translate(${resizeOrig.x - crop.x} ${resizeOrig.y - crop.y})` : undefined;
 
   const cursor =
@@ -476,7 +522,8 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       columnTip = "left";
     }
     const cTop = clamp(bottom - columnSize.h, EDGE, viewport.h - columnSize.h - EDGE);
-    columnStyle = { left: Math.max(EDGE, cLeft), top: Math.max(EDGE, cTop) };
+    // transform, not left/top: moving it needs no layout, only compositing.
+    columnStyle = { left: 0, top: 0, transform: `translate3d(${Math.max(EDGE, cLeft)}px, ${Math.max(EDGE, cTop)}px, 0)` };
 
     // Leave room under the bar for the redact/blur note.
     const room = barSize.h + 32;
@@ -492,7 +539,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       barTip = "top";
     }
     const bLeft = clamp(right - barSize.w, EDGE, viewport.w - barSize.w - EDGE);
-    barStyle = { left: bLeft, top: bTop };
+    barStyle = { left: 0, top: 0, transform: `translate3d(${bLeft}px, ${bTop}px, 0)` };
     badgeStyle = top >= 28 ? { left, top: top - 26 } : { left: left + 6, top: top + 6 };
   }
   const sizeLabel = regionDraft ?? crop;
@@ -528,16 +575,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
                 {draft ? <ItemShape item={draft} src={src} /> : null}
               </g>
             </g>
-            {hitEnabled && !resizeOrig ? (
-              <g>
-                {items
-                  .filter((i) => tool === "select" || i.type === "text")
-                  .map((i) => {
-                    const it = renderItem(i);
-                    return <HitArea key={i.id} item={it} bounds={itemBounds(it, measureText)} scale={sx} />;
-                  })}
-              </g>
-            ) : null}
+            {hitEnabled && !resizeOrig ? hitAreas : null}
             {selected && !textEdit && !resizeOrig ? (
               <SelectionOutline bounds={itemBounds(renderItem(selected), measureText)} pad={4 * sx} />
             ) : null}
@@ -569,7 +607,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       {editing && crop ? (
         <>
           <ToolColumn ref={columnRef} style={columnStyle} tipSide={columnTip} />
-          <ActionBar ref={barRef} style={barStyle} tipSide={barTip} busy={phase !== "editing"} onCopy={onCopy} onSave={onSave} onQuickSave={onQuickSave} onCancel={onCancel} />
+          <ActionBar ref={barRef} style={barStyle} tipSide={barTip} busy={phase !== "editing"} onCopy={copy} onSave={save} onQuickSave={quickSave} onCancel={cancel} />
         </>
       ) : null}
 

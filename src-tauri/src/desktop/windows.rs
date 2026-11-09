@@ -42,6 +42,8 @@ pub struct NavigatePayload {
 
 pub fn show_main<R: Runtime>(app: &AppHandle<R>, view: MainView, error: Option<String>) {
     if let Some(w) = app.get_webview_window(MAIN) {
+        // macOS: become a regular app (Dock icon + app menu) while Settings is open.
+        super::app_menu::set_foreground(app, true);
         let _ = w.emit("navigate", NavigatePayload { view, error });
         let _ = w.unminimize();
         let _ = w.show();

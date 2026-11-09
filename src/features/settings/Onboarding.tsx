@@ -1,4 +1,4 @@
-import { Camera, Droplets, MonitorUp, ShieldCheck } from "lucide-react";
+import { Droplets, MonitorUp, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ export function Onboarding({ settings, info, onFinish }: Props) {
       <Card className="w-full max-w-lg">
         {step === "shortcut" ? (
           <CardHeader>
-            <Camera className="mb-2 text-primary" aria-hidden />
+            <img src="/favicon.svg" alt="" aria-hidden className="mb-2 size-12" draggable={false} />
             <CardTitle className="text-xl">Welcome to FastShot</CardTitle>
             <CardDescription>Take a screenshot, mark it up, hide what's private, and share it. Nothing leaves your device.</CardDescription>
           </CardHeader>

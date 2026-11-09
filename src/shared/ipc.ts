@@ -21,6 +21,7 @@ export interface Settings {
   onboardingComplete: boolean;
   filenameTemplate: string;
   showMagnifier: boolean;
+  autoSelectWindow: boolean;
   launchAtLogin: boolean;
 }
 
@@ -112,7 +113,7 @@ export const api = {
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
   browseSaveDirectory: () => invoke<string | null>("browse_save_directory"),
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
-  beginCapture: (mode?: CaptureMode, delaySecs = 0) => invoke<void>("begin_capture", { mode: mode ?? null, delaySecs }),
+  beginCapture: (mode?: CaptureMode) => invoke<void>("begin_capture", { mode: mode ?? null }),
   previewFilename: (template: string) => invoke<FilenamePreview>("preview_filename", { template }),
   requestPermission: () => invoke<"granted" | "denied">("request_permission"),
   openPermissionSettings: () => invoke<void>("open_permission_settings"),

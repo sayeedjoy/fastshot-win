@@ -1,3 +1,4 @@
+pub mod app_menu;
 pub mod autostart;
 pub mod protocol;
 pub mod shortcut;
@@ -20,27 +21,12 @@ use windows::{MainView, show_main};
 /// so a denial never turns into a prompt loop (PRD Flow C).
 static PERMISSION_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-/// Longest user-selectable capture delay.
-pub const MAX_DELAY_SECS: u32 = 30;
-
 /// Start a capture on a background thread. Safe to call repeatedly: extra
-/// calls while a capture is active are ignored.
+/// calls while a capture is active are ignored. `delay` is only a few frames
+/// for a closing native menu to leave the screen; there is no user countdown.
 pub fn trigger_capture<R: Runtime>(app: &AppHandle<R>, mode: Option<CaptureMode>, delay: Duration) {
-    trigger_delayed_capture(app, mode, delay, 0);
-}
-
-/// Like `trigger_capture`, but counts down `countdown_secs` first (P1 capture
-/// delay) so the user can open a menu or hover state before pixels freeze.
-/// The countdown is shown on the tray icon.
-pub fn trigger_delayed_capture<R: Runtime>(
-    app: &AppHandle<R>,
-    mode: Option<CaptureMode>,
-    delay: Duration,
-    countdown_secs: u32,
-) {
     let app = app.clone();
-    let countdown = countdown_secs.min(MAX_DELAY_SECS);
-    std::thread::spawn(move || match run_capture(&app, mode, delay, countdown) {
+    std::thread::spawn(move || match run_capture(&app, mode, delay) {
         Ok(()) | Err(AppError::Busy) => {}
         Err(AppError::PermissionDenied) => show_main(&app, MainView::Permission, None),
         Err(e) => show_main(&app, MainView::Settings, Some(e.to_string())),
@@ -51,7 +37,6 @@ fn run_capture<R: Runtime>(
     app: &AppHandle<R>,
     mode: Option<CaptureMode>,
     mut delay: Duration,
-    countdown: u32,
 ) -> AppResult<()> {
     let manager = app.state::<SessionManager>();
     let guard = manager.try_prepare().ok_or(AppError::Busy)?;
@@ -61,23 +46,13 @@ fn run_capture<R: Runtime>(
         && main.is_visible().unwrap_or(false)
     {
         let _ = main.hide();
+        app_menu::set_foreground(app, false);
         // One or two compositor frames are enough for the hidden window to
         // disappear. The previous 250 ms pause made capture feel unresponsive.
         delay = delay.max(Duration::from_millis(40));
     }
     if !delay.is_zero() {
         std::thread::sleep(delay);
-    }
-    if countdown > 0 {
-        for left in (1..=countdown).rev() {
-            tray::set_status(
-                app,
-                Some(&format!("Capturing in {left}…")),
-                Some(&left.to_string()),
-            );
-            std::thread::sleep(Duration::from_secs(1));
-        }
-        tray::set_status(app, None, None);
     }
 
     if permission::status() == permission::PermissionStatus::Denied {
