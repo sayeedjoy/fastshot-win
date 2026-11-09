@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { keyAction } from "@/features/editor/keyboard";
-import { loadAnnotationFont } from "@/features/editor/measure";
+import { clearMeasureCache, loadAnnotationFont } from "@/features/editor/measure";
 import { toRenderRequest } from "@/features/editor/model";
 import { useEditor } from "@/features/editor/store";
 import { type CaptureMode, type Destination, type OverlayBoot, api, errorMessage } from "@/shared/ipc";
@@ -76,10 +76,19 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
       .catch(() => undefined);
     void loadAnnotationFont();
 
+    // OverlayApp is keyed by session, so this runs only on unmount. The
+    // stores and the text-measure cache outlive the component: clear them so
+    // the selection and edits (including typed text) don't linger.
     return () => {
       alive = false;
+      useCapture.getState().reset();
+      useEditor.getState().reset();
+      clearMeasureCache();
     };
   }, [boot.sessionId, boot.monitorIndex, cancel]);
+
+  /** False once this session's editor is gone (ended or replaced). */
+  const isCurrent = useCallback(() => useCapture.getState().session?.sessionId === boot.sessionId, [boot.sessionId]);
 
   // Only one monitor can hold a selection; the others reset when it's claimed.
   useEffect(() => {
@@ -123,6 +132,8 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
       }
       try {
         const res = await api.exportCapture(request);
+        // The session may have ended (Esc, tray) while the dialog was open.
+        if (!isCurrent()) return;
         if (!res.completed) {
           c.setPhase("editing");
           return;
@@ -134,11 +145,12 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
         });
         window.setTimeout(cancel, 1600);
       } catch (e) {
+        if (!isCurrent()) return;
         c.setPhase("editing");
         c.setNotice({ kind: "error", message: errorMessage(e) });
       }
     },
-    [cancel],
+    [cancel, isCurrent],
   );
 
   // OCR runs on the same rendered raster as Copy/Save, so redacted text is
@@ -156,15 +168,17 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
         ...toRenderRequest(c.crop, useEditor.getState().items),
       });
       // On success Rust has already ended the capture and hidden the overlay.
+      if (!isCurrent()) return;
       if (!res.found) {
         c.setPhase("editing");
         c.setNotice({ kind: "info", message: "No text found in the selection." });
       }
     } catch (e) {
+      if (!isCurrent()) return;
       c.setPhase("editing");
       c.setNotice({ kind: "error", message: errorMessage(e) });
     }
-  }, []);
+  }, [isCurrent]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

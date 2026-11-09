@@ -217,12 +217,28 @@ pub fn reveal_overlay<R: Runtime>(app: &AppHandle<R>, session: &Session, index: 
 }
 
 /// Hide overlays but keep their WebViews warm for the next capture.
-pub fn close_overlays<R: Runtime>(app: &AppHandle<R>) {
+///
+/// The WebView itself (renderer, JS bundle) stays alive, which is what makes
+/// the next capture instant. The page is told the session ended so it unmounts
+/// the editor and drops its decoded copy of the frozen frame and the edits:
+/// nothing from a finished capture lingers in memory while the app idles.
+/// The page ignores the event if it has already moved on to a newer session.
+pub fn close_overlays<R: Runtime>(app: &AppHandle<R>, session_id: &str) {
+    let script = capture_end_script(session_id);
     for (label, w) in app.webview_windows() {
         if is_overlay(&label) {
             let _ = w.hide();
+            let _ = w.eval(&script);
         }
     }
+}
+
+fn capture_end_script(session_id: &str) -> String {
+    // A JSON string is a valid, fully escaped JS string literal.
+    let id = serde_json::Value::from(session_id).to_string();
+    format!(
+        "if(window.__FASTSHOT_OVERLAY__&&window.__FASTSHOT_OVERLAY__.sessionId==={id})window.__FASTSHOT_OVERLAY__=undefined;window.dispatchEvent(new CustomEvent('fastshot:capture-end',{{detail:{{sessionId:{id}}}}}));"
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -240,3 +256,23 @@ fn raise_above_menu_bar<R: Runtime>(window: &tauri::WebviewWindow<R>) {
 
 #[cfg(not(target_os = "macos"))]
 fn raise_above_menu_bar<R: Runtime>(_window: &tauri::WebviewWindow<R>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_end_script;
+
+    #[test]
+    fn capture_end_script_targets_only_its_session() {
+        let s = capture_end_script("abc-123");
+        assert!(s.contains(r#"__FASTSHOT_OVERLAY__.sessionId==="abc-123""#));
+        assert!(s.contains(r#"'fastshot:capture-end',{detail:{sessionId:"abc-123"}}"#));
+    }
+
+    #[test]
+    fn capture_end_script_escapes_the_id() {
+        // Ids are UUIDs, but the script must stay well-formed for any string.
+        let s = capture_end_script(r#"x"};alert(1);//"#);
+        assert!(s.contains(r#""x\"};alert(1);//""#));
+        assert!(!s.contains(r#""x"};"#));
+    }
+}

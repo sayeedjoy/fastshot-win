@@ -18,6 +18,11 @@ export const measureText: TextMeasurer = (line, fontSize) => {
   return w;
 };
 
+/** Forget measured lines. Keys contain typed text, so clear them when a capture ends. */
+export function clearMeasureCache(): void {
+  cache.clear();
+}
+
 export async function loadAnnotationFont(): Promise<void> {
   try {
     await document.fonts.load(`24px ${ANNOTATION_FONT}`);

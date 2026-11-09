@@ -93,9 +93,10 @@ fn run_capture<R: Runtime>(
     Ok(())
 }
 
-/// End the active session: close overlays and release frozen frames.
+/// End the active session: close overlays and release frozen frames, both
+/// here and in the overlay WebViews (which drop their decoded copy).
 pub fn end_capture<R: Runtime>(app: &AppHandle<R>, session_id: Option<&str>) {
-    if app.state::<SessionManager>().take(session_id).is_some() {
-        windows::close_overlays(app);
+    if let Some(session) = app.state::<SessionManager>().take(session_id) {
+        windows::close_overlays(app, &session.id);
     }
 }
