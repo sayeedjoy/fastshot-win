@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture-overlay",
+  "description": "Per-monitor capture overlays. May read the live session and export it; no settings writes, no filesystem.",
+  "windows": ["overlay-*"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-emit",
+    "allow-get-session",
+    "allow-overlay-ready",
+    "allow-cancel-capture",
+    "allow-export-capture",
+    "allow-get-settings"
+  ]
+}
