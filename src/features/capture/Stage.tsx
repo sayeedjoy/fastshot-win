@@ -2,7 +2,7 @@ import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useMemo, useRe
 
 import { HitArea, ItemShape, type PreviewSource } from "@/features/editor/ItemShape";
 import { TextEditor } from "@/features/editor/TextEditor";
-import { TOOLBAR_HEIGHT, Toolbar } from "@/features/editor/Toolbar";
+import { ActionBar, ToolColumn } from "@/features/editor/Toolbar";
 import { measureText } from "@/features/editor/measure";
 import {
   type DrawTool,
@@ -149,15 +149,22 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   const [resizeOrig, setResizeOrig] = useState<PixelRect | null>(null);
   const [textEdit, setTextEdit] = useState<{ item: ItemOf<"text">; isNew: boolean } | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  const moveFrame = useRef<number | null>(null);
+  const pendingMove = useRef<{ clientX: number; clientY: number } | null>(null);
   // Pointer in image px while the magnifier is relevant, else null.
   const [pointer, setPointer] = useState<Point | null>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const [toolbarWidth, setToolbarWidth] = useState(560);
+  const columnRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [columnSize, setColumnSize] = useState({ w: 38, h: 460 });
+  const [barSize, setBarSize] = useState({ w: 150, h: 38 });
 
   useLayoutEffect(() => {
     const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (moveFrame.current !== null) window.cancelAnimationFrame(moveFrame.current);
+    };
   }, []);
 
   // Image px per CSS px. Derived from the live window size, never from the
@@ -167,7 +174,10 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
   const editing = phase === "editing" || phase === "exporting" || phase === "done";
 
   useLayoutEffect(() => {
-    if (toolbarRef.current) setToolbarWidth(toolbarRef.current.offsetWidth);
+    const c = columnRef.current;
+    const b = barRef.current;
+    if (c) setColumnSize((s) => (s.w === c.offsetWidth && s.h === c.offsetHeight ? s : { w: c.offsetWidth, h: c.offsetHeight }));
+    if (b) setBarSize((s) => (s.w === b.offsetWidth && s.h === b.offsetHeight ? s : { w: b.offsetWidth, h: b.offsetHeight }));
   }, [editing, tool]);
 
   const toImage = (e: { clientX: number; clientY: number }): Point => [
@@ -279,7 +289,7 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+  const processPointerMove = (e: { clientX: number; clientY: number }) => {
     const p = toImage(e);
     const g = gesture.current;
     if (magnifierOn) {
@@ -321,7 +331,27 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
     }
   };
 
+  // Pointer devices can deliver events faster than the display refreshes.
+  // Coalesce them so the SVG and magnifier render at most once per frame.
+  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    pendingMove.current = { clientX: e.clientX, clientY: e.clientY };
+    if (moveFrame.current !== null) return;
+    moveFrame.current = window.requestAnimationFrame(() => {
+      moveFrame.current = null;
+      const pending = pendingMove.current;
+      pendingMove.current = null;
+      if (pending) processPointerMove(pending);
+    });
+  };
+
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (moveFrame.current !== null) {
+      window.cancelAnimationFrame(moveFrame.current);
+      moveFrame.current = null;
+    }
+    pendingMove.current = null;
+    // Preserve the final coordinates even when the last move was coalesced.
+    processPointerMove(e);
     const g = gesture.current;
     gesture.current = null;
     if (!g) return;
@@ -417,18 +447,52 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
           ? "text"
           : "crosshair";
 
-  // Toolbar: below the selection, else above, else inside the bottom edge.
-  let toolbarStyle: React.CSSProperties = {};
+  // Tool column: right of the selection (bottom-aligned), else left, else
+  // inside the right edge. Action bar: below the selection's right edge,
+  // else above, else inside the bottom edge.
+  const GAP = 6;
+  const EDGE = 4;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
+  let columnStyle: React.CSSProperties = {};
+  let barStyle: React.CSSProperties = {};
+  let columnTip: "left" | "right" = "right";
+  let barTip: "top" | "bottom" = "bottom";
   let badgeStyle: React.CSSProperties = {};
   if (crop) {
     const left = crop.x / sx;
     const top = crop.y / sy;
     const right = (crop.x + crop.width) / sx;
     const bottom = (crop.y + crop.height) / sy;
-    const room = TOOLBAR_HEIGHT + 40;
-    const tTop = bottom + 8 + room <= viewport.h ? bottom + 8 : top - 8 - room >= 0 ? top - 8 - TOOLBAR_HEIGHT : bottom - TOOLBAR_HEIGHT - 8;
-    const tLeft = Math.min(Math.max(8, right - toolbarWidth), viewport.w - toolbarWidth - 8);
-    toolbarStyle = { top: tTop, left: Math.max(8, tLeft) };
+
+    let cLeft: number;
+    if (right + GAP + columnSize.w <= viewport.w - EDGE) {
+      cLeft = right + GAP;
+      columnTip = "right";
+    } else if (left - GAP - columnSize.w >= EDGE) {
+      cLeft = left - GAP - columnSize.w;
+      columnTip = "left";
+    } else {
+      cLeft = right - GAP - columnSize.w;
+      columnTip = "left";
+    }
+    const cTop = clamp(bottom - columnSize.h, EDGE, viewport.h - columnSize.h - EDGE);
+    columnStyle = { left: Math.max(EDGE, cLeft), top: Math.max(EDGE, cTop) };
+
+    // Leave room under the bar for the redact/blur note.
+    const room = barSize.h + 32;
+    let bTop: number;
+    if (bottom + GAP + room <= viewport.h) {
+      bTop = bottom + GAP;
+      barTip = "bottom";
+    } else if (top - GAP - barSize.h >= EDGE) {
+      bTop = top - GAP - barSize.h;
+      barTip = "top";
+    } else {
+      bTop = bottom - GAP - barSize.h;
+      barTip = "top";
+    }
+    const bLeft = clamp(right - barSize.w, EDGE, viewport.w - barSize.w - EDGE);
+    barStyle = { left: bLeft, top: bTop };
     badgeStyle = top >= 28 ? { left, top: top - 26 } : { left: left + 6, top: top + 6 };
   }
   const sizeLabel = regionDraft ?? crop;
@@ -503,9 +567,10 @@ export function Stage({ session, img, onClaim, onCopy, onSave, onQuickSave, onCa
       ) : null}
 
       {editing && crop ? (
-        <div ref={toolbarRef} className="absolute" style={toolbarStyle}>
-          <Toolbar style={{ position: "relative" }} busy={phase !== "editing"} onCopy={onCopy} onSave={onSave} onQuickSave={onQuickSave} onCancel={onCancel} />
-        </div>
+        <>
+          <ToolColumn ref={columnRef} style={columnStyle} tipSide={columnTip} />
+          <ActionBar ref={barRef} style={barStyle} tipSide={barTip} busy={phase !== "editing"} onCopy={onCopy} onSave={onSave} onQuickSave={onQuickSave} onCancel={onCancel} />
+        </>
       ) : null}
 
       {textEdit && crop ? (

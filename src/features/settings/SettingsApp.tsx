@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { AppWindow, LogOut, Monitor, ShieldCheck, SquareDashed, Timer, TriangleAlert, X } from "lucide-react";
+import { AppWindow, Brush, Camera, Info, LogOut, Monitor, Settings2, ShieldCheck, Sparkles, SquareDashed, Timer, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -8,7 +8,6 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,7 +17,20 @@ import { isMac, setThemePreference } from "@/shared/theme";
 import { formatAccelerator } from "./accelerator";
 import { Onboarding } from "./Onboarding";
 import { PermissionPanel } from "./PermissionPanel";
-import { AnnotationSettings, GeneralSettings } from "./SettingsForm";
+import { AnnotationSettings, GeneralSettings, SettingsSection } from "./SettingsForm";
+
+const TABS = [
+  { value: "general", label: "General", icon: Settings2, hint: "Capture, saving and startup" },
+  { value: "annotations", label: "Annotations", icon: Brush, hint: "Default colours and sizes for the editor" },
+  { value: "privacy", label: "Privacy & about", icon: ShieldCheck, hint: "How FastShot handles your screenshots" },
+] as const;
+
+const PRIVACY_POINTS = [
+  "Works fully offline. No account, no uploads, no analytics.",
+  "Screenshots stay in memory until you copy or save; nothing is written to disk automatically.",
+  "Clipboard managers and OS clipboard history may keep copies of anything you copy.",
+  "Exported images are freshly encoded without metadata.",
+];
 
 export default function SettingsApp() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -27,6 +39,7 @@ export default function SettingsApp() {
   const [banner, setBanner] = useState<string | null>(null);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [delay, setDelay] = useState("0");
+  const [tab, setTab] = useState<string>("general");
 
   const refresh = useCallback(async () => {
     const [s, i] = await Promise.all([api.getSettings(), api.getAppInfo()]);
@@ -91,23 +104,30 @@ export default function SettingsApp() {
     );
   }
 
+  const current = TABS.find((t) => t.value === tab) ?? TABS[0];
+
   return (
     <TooltipProvider>
-      <div className="flex min-h-svh flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-          <div className="flex flex-col gap-0.5">
-            <h1 className="font-heading text-lg font-semibold">FastShot</h1>
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              Press
-              <KbdGroup>
-                {formatAccelerator(settings.shortcut, isMac).map((k) => (
-                  <Kbd key={k}>{k}</Kbd>
-                ))}
-              </KbdGroup>
-              to capture
-            </p>
+      <div className="flex h-svh flex-col overflow-hidden bg-background">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+              <Camera className="size-5" />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h1 className="font-heading text-base leading-none font-semibold">FastShot</h1>
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                Press
+                <KbdGroup>
+                  {formatAccelerator(settings.shortcut, isMac).map((k) => (
+                    <Kbd key={k}>{k}</Kbd>
+                  ))}
+                </KbdGroup>
+                to capture
+              </p>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={delay} onValueChange={setDelay}>
               <SelectTrigger aria-label="Capture delay">
                 <Timer />
@@ -135,8 +155,8 @@ export default function SettingsApp() {
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col gap-4 px-6 py-5">
-          {banner ? (
+        {banner ? (
+          <div className="shrink-0 px-5 pt-4">
             <Alert variant="destructive">
               <TriangleAlert />
               <AlertTitle>Something needs attention</AlertTitle>
@@ -147,10 +167,12 @@ export default function SettingsApp() {
                 </Button>
               </AlertAction>
             </Alert>
-          ) : null}
+          </div>
+        ) : null}
 
-          {view === "permission" ? (
-            <section className="flex flex-col gap-3" aria-labelledby="perm-title">
+        {view === "permission" ? (
+          <main className="flex-1 overflow-y-auto px-6 py-6">
+            <section className="mx-auto flex max-w-xl flex-col gap-3" aria-labelledby="perm-title">
               <h2 id="perm-title" className="font-heading text-base font-semibold">
                 Screen recording permission needed
               </h2>
@@ -161,57 +183,88 @@ export default function SettingsApp() {
                 </Button>
               </div>
             </section>
-          ) : (
-            <Tabs defaultValue="general">
-              <TabsList>
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="annotations">Annotations</TabsTrigger>
-                <TabsTrigger value="privacy">Privacy &amp; about</TabsTrigger>
+          </main>
+        ) : (
+          <Tabs value={tab} onValueChange={setTab} orientation="vertical" className="min-h-0 flex-1 gap-0">
+            <aside className="flex w-48 shrink-0 flex-col justify-between border-r bg-muted/30 p-3">
+              <TabsList className="h-fit w-full flex-col items-stretch gap-1 bg-transparent p-0">
+                {TABS.map(({ value, label, icon: Icon }) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="h-9 flex-none justify-start gap-2.5 rounded-md px-2.5 text-[0.8rem] data-active:bg-background data-active:shadow-sm dark:data-active:bg-input/40 [&_svg]:text-muted-foreground data-active:[&_svg]:text-primary"
+                  >
+                    <Icon />
+                    {label}
+                  </TabsTrigger>
+                ))}
               </TabsList>
-              <TabsContent value="general" className="pt-4">
-                <GeneralSettings settings={settings} save={save} shortcutError={shortcutError} />
-              </TabsContent>
-              <TabsContent value="annotations" className="pt-4">
-                <AnnotationSettings settings={settings} save={save} shortcutError={null} />
-              </TabsContent>
-              <TabsContent value="privacy" className="flex flex-col gap-4 pt-4">
-                <Alert>
-                  <ShieldCheck />
-                  <AlertTitle>Redact is permanent. Blur and pixelate are not.</AlertTitle>
-                  <AlertDescription>
-                    Redact replaces pixels with solid colour in the exported image. Blur and pixelate are visual effects — text beneath them may be recoverable.
-                  </AlertDescription>
-                </Alert>
-                <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-                  <li>Works fully offline. No account, no uploads, no analytics.</li>
-                  <li>Screenshots stay in memory until you copy or save; nothing is written to disk automatically.</li>
-                  <li>Clipboard managers and OS clipboard history may keep copies of anything you copy.</li>
-                  <li>Exported images are freshly encoded without metadata.</li>
-                </ul>
-                <Separator />
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-                  <span>
-                    Version {info?.version} · {info?.platform}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setView("onboarding")}>
-                      Show welcome
-                    </Button>
-                    <Button variant="outline" onClick={() => void api.quitApp()}>
-                      <LogOut data-icon="inline-start" />
-                      Quit FastShot
-                    </Button>
-                  </div>
+              <div className="flex flex-col gap-1">
+                <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => void getCurrentWindow().hide()}>
+                  <X data-icon="inline-start" />
+                  Close window
+                </Button>
+                {info ? <p className="px-2.5 text-[11px] text-muted-foreground/80">Version {info.version}</p> : null}
+              </div>
+            </aside>
+
+            <main className="min-w-0 flex-1 overflow-y-auto">
+              <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-6">
+                <div className="flex flex-col gap-1">
+                  <h2 className="flex items-center gap-2 font-heading text-xl font-semibold tracking-tight">
+                    <current.icon className="size-5 text-primary" />
+                    {current.label}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">{current.hint}. Changes are saved automatically.</p>
                 </div>
-              </TabsContent>
-            </Tabs>
-          )}
-        </main>
-        <footer className="flex justify-end border-t px-6 py-3">
-          <Button variant="ghost" onClick={() => void getCurrentWindow().hide()}>
-            Close
-          </Button>
-        </footer>
+
+                <TabsContent value="general">
+                  <GeneralSettings settings={settings} save={save} shortcutError={shortcutError} defaultSaveDirectory={info?.defaultSaveDirectory} />
+                </TabsContent>
+                <TabsContent value="annotations">
+                  <AnnotationSettings settings={settings} save={save} shortcutError={null} />
+                </TabsContent>
+                <TabsContent value="privacy" className="flex flex-col gap-8">
+                  <Alert>
+                    <ShieldCheck />
+                    <AlertTitle>Redact is permanent. Blur and pixelate are not.</AlertTitle>
+                    <AlertDescription>
+                      Redact replaces pixels with solid colour in the exported image. Blur and pixelate are visual effects — text beneath them may be recoverable.
+                    </AlertDescription>
+                  </Alert>
+                  <SettingsSection icon={ShieldCheck} title="Your data">
+                    <ul className="flex flex-col gap-2.5 text-sm text-muted-foreground">
+                      {PRIVACY_POINTS.map((t) => (
+                        <li key={t} className="flex gap-2.5">
+                          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/60" />
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                  </SettingsSection>
+                  <SettingsSection icon={Info} title="About">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5 text-sm">
+                        <span className="font-medium">FastShot {info?.version}</span>
+                        <span className="text-xs text-muted-foreground">Running on {info?.platform}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setView("onboarding")}>
+                          <Sparkles data-icon="inline-start" />
+                          Show welcome
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => void api.quitApp()}>
+                          <LogOut data-icon="inline-start" />
+                          Quit FastShot
+                        </Button>
+                      </div>
+                    </div>
+                  </SettingsSection>
+                </TabsContent>
+              </div>
+            </main>
+          </Tabs>
+        )}
       </div>
       <Toaster />
     </TooltipProvider>

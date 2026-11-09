@@ -43,25 +43,28 @@ fn flatten(img: &RgbaImage) -> RgbImage {
 }
 
 pub fn encode(img: &RgbaImage, format: ImageFormat, jpeg_quality: u8) -> Result<Vec<u8>, String> {
-    let rgb = flatten(img);
     let mut buf = Vec::new();
     match format {
+        // The compositor already forces every export pixel opaque. Keeping the
+        // RGBA representation avoids another full-size RGB allocation and copy.
         ImageFormat::Png => {
             PngEncoder::new_with_quality(&mut buf, CompressionType::Default, FilterType::Adaptive)
                 .write_image(
-                    rgb.as_raw(),
-                    rgb.width(),
-                    rgb.height(),
-                    ExtendedColorType::Rgb8,
+                    img.as_raw(),
+                    img.width(),
+                    img.height(),
+                    ExtendedColorType::Rgba8,
                 )
         }
-        ImageFormat::Jpeg => JpegEncoder::new_with_quality(&mut buf, jpeg_quality.clamp(1, 100))
-            .write_image(
+        ImageFormat::Jpeg => {
+            let rgb = flatten(img);
+            JpegEncoder::new_with_quality(&mut buf, jpeg_quality.clamp(1, 100)).write_image(
                 rgb.as_raw(),
                 rgb.width(),
                 rgb.height(),
                 ExtendedColorType::Rgb8,
-            ),
+            )
+        }
     }
     .map_err(|e| e.to_string())?;
     Ok(buf)

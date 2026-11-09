@@ -68,6 +68,8 @@ export interface AppInfo {
   permission: "granted" | "denied";
   canOpenPermissionSettings: boolean;
   shortcutError: string | null;
+  /** `Documents/FastShot`, used when no save folder is chosen. */
+  defaultSaveDirectory: string | null;
 }
 
 export type MainView = "settings" | "onboarding" | "permission";

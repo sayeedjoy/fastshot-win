@@ -97,7 +97,7 @@ pub enum Destination {
     File,
     /// Straight into the default save folder with the naming template, no
     /// dialog (P1). The folder was chosen by the user via a native folder
-    /// picker (or is the OS Pictures folder); the UI never supplies a path.
+    /// picker (or is `Documents/FastShot`); the UI never supplies a path.
     #[serde(rename = "quicksave")]
     QuickSave,
 }
@@ -123,12 +123,29 @@ pub struct ExportResult {
     height: u32,
 }
 
+/// Name of the folder FastShot creates inside the user's Documents folder.
+const APP_FOLDER: &str = "FastShot";
+
+/// `Documents/FastShot` (like Lightshot's `Documents/LightShot`). Not created.
+fn app_folder(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .document_dir()
+        .ok()
+        .or_else(|| app.path().picture_dir().ok())
+        .map(|d| d.join(APP_FOLDER))
+}
+
+/// The user's chosen folder if it still exists, otherwise `Documents/FastShot`
+/// (created on demand), otherwise the OS Pictures folder.
 fn default_save_dir(app: &AppHandle, settings: &Settings) -> Option<PathBuf> {
     settings
         .save_directory
         .as_ref()
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
+        .or_else(|| {
+            app_folder(app).filter(|p| p.is_dir() || std::fs::create_dir_all(p).is_ok())
+        })
         .or_else(|| app.path().picture_dir().ok().filter(|p| p.is_dir()))
 }
 
@@ -177,6 +194,50 @@ async fn write_image(
     .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
+/// Copy is meant to feel instant: the overlay is hidden first, then the image
+/// is composited and written to the clipboard off the async runtime. The
+/// session `Arc` keeps the frozen frame alive after the session is ended.
+/// Failures surface in the main window because the overlay is already gone.
+async fn copy_to_clipboard(
+    app: AppHandle,
+    session: std::sync::Arc<crate::session::Session>,
+    args: ExportArgs,
+) -> AppResult<ExportResult> {
+    desktop::end_capture(&app, Some(&args.session_id));
+
+    let index = args.monitor_index;
+    let request = args.request;
+    let worker = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> AppResult<(u32, u32)> {
+        let image = render_export(&session.frames[index].image, &request)
+            .map_err(AppError::InvalidInput)?;
+        let (width, height) = image.dimensions();
+        let img = tauri::image::Image::new_owned(image.into_raw(), width, height);
+        worker
+            .clipboard()
+            .write_image(&img)
+            .map_err(|e| AppError::Clipboard(e.to_string()))?;
+        Ok((width, height))
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))
+    .and_then(|r| r);
+
+    match result {
+        Ok((width, height)) => Ok(ExportResult {
+            completed: true,
+            destination: Destination::Clipboard,
+            path: None,
+            width,
+            height,
+        }),
+        Err(e) => {
+            windows::show_main(&app, windows::MainView::Settings, Some(e.to_string()));
+            Err(e)
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn export_capture(
     app: AppHandle,
@@ -185,6 +246,10 @@ pub async fn export_capture(
 ) -> AppResult<ExportResult> {
     let session = app.state::<SessionManager>().get(&args.session_id)?;
     session.frame(args.monitor_index)?;
+
+    if args.destination == Destination::Clipboard {
+        return copy_to_clipboard(app, session, args).await;
+    }
     let prefs = settings::current(&app);
 
     // Same compositor for clipboard and file (SEC-04).
@@ -200,19 +265,7 @@ pub async fn export_capture(
     let (width, height) = image.dimensions();
 
     match args.destination {
-        Destination::Clipboard => {
-            let img = tauri::image::Image::new_owned(image.into_raw(), width, height);
-            app.clipboard()
-                .write_image(&img)
-                .map_err(|e| AppError::Clipboard(e.to_string()))?;
-            Ok(ExportResult {
-                completed: true,
-                destination: Destination::Clipboard,
-                path: None,
-                width,
-                height,
-            })
-        }
+        Destination::Clipboard => unreachable!("handled by copy_to_clipboard"),
         Destination::QuickSave => {
             let dir = default_save_dir(&app, &prefs).ok_or_else(|| {
                 AppError::Io("There's no default save folder. Choose one in Settings.".into())
@@ -301,13 +354,33 @@ pub fn get_settings(app: AppHandle) -> Settings {
 pub fn update_settings(app: AppHandle, settings: Settings) -> AppResult<Settings> {
     settings.validate()?;
     let previous = settings::current(&app);
-    if settings.shortcut != previous.shortcut || shortcut::last_error(&app).is_some() {
+    let shortcut_changed =
+        settings.shortcut != previous.shortcut || shortcut::last_error(&app).is_some();
+    let autostart_changed = settings.launch_at_login != previous.launch_at_login;
+
+    if shortcut_changed {
         shortcut::apply(&app, &settings.shortcut, Some(&previous.shortcut))?;
     }
-    if settings.launch_at_login != previous.launch_at_login {
-        autostart::set_enabled(&app, settings.launch_at_login)?;
+    if autostart_changed && let Err(error) = autostart::set_enabled(&app, settings.launch_at_login)
+    {
+        let _ = autostart::set_enabled(&app, previous.launch_at_login);
+        if shortcut_changed {
+            let _ = shortcut::apply(&app, &previous.shortcut, Some(&settings.shortcut));
+        }
+        return Err(error);
     }
-    settings::save(&app, &settings)?;
+    if let Err(error) = settings::save(&app, &settings) {
+        // `Store::set` precedes its disk write, so restore both the persisted
+        // value and the plugin's in-memory value when that write fails.
+        let _ = settings::save(&app, &previous);
+        if autostart_changed {
+            let _ = autostart::set_enabled(&app, previous.launch_at_login);
+        }
+        if shortcut_changed {
+            let _ = shortcut::apply(&app, &previous.shortcut, Some(&settings.shortcut));
+        }
+        return Err(error);
+    }
     Ok(settings)
 }
 
@@ -364,6 +437,8 @@ pub struct AppInfo {
     permission: PermissionStatus,
     can_open_permission_settings: bool,
     shortcut_error: Option<String>,
+    /// Where saves go when no folder is chosen: `Documents/FastShot`.
+    default_save_directory: Option<String>,
 }
 
 #[tauri::command]
@@ -374,12 +449,20 @@ pub fn get_app_info(app: AppHandle) -> AppInfo {
         permission: permission::status(),
         can_open_permission_settings: permission::settings_url().is_some(),
         shortcut_error: shortcut::last_error(&app),
+        default_save_directory: app_folder(&app).map(|p| p.to_string_lossy().into_owned()),
     }
 }
 
 #[tauri::command]
-pub fn begin_capture(app: AppHandle, mode: Option<CaptureMode>) {
-    desktop::trigger_capture(&app, mode, Duration::ZERO);
+pub fn begin_capture(app: AppHandle, mode: Option<CaptureMode>, delay_secs: u32) -> AppResult<()> {
+    if delay_secs > desktop::MAX_DELAY_SECS {
+        return Err(AppError::InvalidInput(format!(
+            "Capture delay cannot exceed {} seconds.",
+            desktop::MAX_DELAY_SECS
+        )));
+    }
+    desktop::trigger_delayed_capture(&app, mode, Duration::ZERO, delay_secs);
+    Ok(())
 }
 
 #[tauri::command]

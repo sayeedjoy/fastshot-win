@@ -1,12 +1,11 @@
-import type { ComponentType, CSSProperties } from "react";
+import type { ComponentType } from "react";
+import { forwardRef } from "react";
 import {
   ArrowUpRight,
   Check,
   Circle,
   Copy,
-  Download,
   Droplets,
-  Ellipsis,
   Grid3x3,
   Highlighter,
   ListOrdered,
@@ -14,7 +13,9 @@ import {
   MousePointer2,
   Pencil,
   Redo2,
+  Save,
   ShieldCheck,
+  Sparkles,
   Square,
   Type,
   Undo2,
@@ -38,23 +39,20 @@ import { PALETTE } from "./palette";
 import { useEditor } from "./store";
 
 type Icon = ComponentType<{ className?: string; "data-icon"?: string }>;
+type Side = "top" | "right" | "bottom" | "left";
 
-const PRIMARY: { tool: Tool; label: string; icon: Icon }[] = [
+/** Tools shown directly in the vertical column, top to bottom. */
+const TOOLS: { tool: Tool; label: string; icon: Icon }[] = [
   { tool: "select", label: "Select & move", icon: MousePointer2 },
+  { tool: "pen", label: "Pen", icon: Pencil },
+  { tool: "line", label: "Line", icon: Minus },
   { tool: "arrow", label: "Arrow", icon: ArrowUpRight },
   { tool: "rect", label: "Rectangle", icon: Square },
-  { tool: "pen", label: "Pen", icon: Pencil },
-  { tool: "text", label: "Text", icon: Type },
-];
-
-const SHAPES: { tool: Tool; label: string; icon: Icon }[] = [
   { tool: "ellipse", label: "Ellipse", icon: Circle },
-  { tool: "line", label: "Line", icon: Minus },
-];
-
-const MARKERS: { tool: Tool; label: string; icon: Icon }[] = [
-  { tool: "step", label: "Steps", icon: ListOrdered },
   { tool: "highlight", label: "Highlighter", icon: Highlighter },
+  { tool: "text", label: "Text", icon: Type },
+  { tool: "step", label: "Steps", icon: ListOrdered },
+  { tool: "redact", label: "Redact — permanently replaces pixels", icon: ShieldCheck },
 ];
 
 const EFFECTS: { tool: Tool; label: string; icon: Icon }[] = [
@@ -62,14 +60,15 @@ const EFFECTS: { tool: Tool; label: string; icon: Icon }[] = [
   { tool: "pixelate", label: "Pixelate", icon: Grid3x3 },
 ];
 
-
 const mod = isMac ? "⌘" : "Ctrl";
 
-function Hint({ label, keys, children }: { label: string; keys?: string; children: React.ReactNode }) {
+const PANEL = "rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl";
+
+function Hint({ label, keys, side, children }: { label: string; keys?: string; side: Side; children: React.ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="bottom" className="flex items-center gap-2">
+      <TooltipContent side={side} className="flex items-center gap-2">
         {label}
         {keys ? <Kbd>{keys}</Kbd> : null}
       </TooltipContent>
@@ -143,16 +142,10 @@ function StylePanel() {
   );
 }
 
-interface ToolbarProps {
-  style: CSSProperties;
-  busy: boolean;
-  onCopy: () => void;
-  onSave: () => void;
-  onQuickSave: () => void;
-  onCancel: () => void;
-}
+const stop = (e: React.PointerEvent) => e.stopPropagation();
 
-export function Toolbar({ style: position, busy, onCopy, onSave, onQuickSave, onCancel }: ToolbarProps) {
+/** Vertical drawing-tool column, docked beside the selection. */
+export const ToolColumn = forwardRef<HTMLDivElement, { style: React.CSSProperties; tipSide: Side }>(function ToolColumn({ style, tipSide }, ref) {
   const tool = useEditor((s) => s.tool);
   const setTool = useEditor((s) => s.setTool);
   const canUndo = useEditor((s) => s.past.length > 0);
@@ -161,144 +154,124 @@ export function Toolbar({ style: position, busy, onCopy, onSave, onQuickSave, on
   const redo = useEditor((s) => s.redo);
   const swatch = useEditor((s) => (s.tool === "redact" ? s.style.redactColor : s.tool === "highlight" ? s.style.highlightColor : s.style.color));
 
-  const secondaryActive = [...SHAPES, ...MARKERS, ...EFFECTS].find((t) => t.tool === tool);
+  const effectActive = EFFECTS.find((t) => t.tool === tool);
   const onTool = (v: string) => v && setTool(v as Tool);
 
   return (
-    <div
-      role="toolbar"
-      aria-label="Screenshot tools"
-      className="absolute flex flex-col items-end gap-1.5"
-      style={position}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-1 rounded-xl border bg-popover p-1 text-popover-foreground shadow-xl">
-        <ToggleGroup type="single" size="sm" spacing={1} value={secondaryActive ? "" : tool} onValueChange={onTool} aria-label="Tool">
-          {PRIMARY.map(({ tool: t, label, icon: I }) => (
-            <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]}>
-              <ToggleGroupItem value={t} aria-label={label}>
-                <I />
-              </ToggleGroupItem>
-            </Hint>
-          ))}
-          <Hint label="Redact — permanently replaces pixels" keys={TOOL_SHORTCUT.redact}>
-            <ToggleGroupItem value="redact" aria-label="Redact (permanent)" className="gap-1 px-2 font-medium">
-              <ShieldCheck data-icon="inline-start" />
-              Redact
+    <div ref={ref} role="toolbar" aria-orientation="vertical" aria-label="Drawing tools" className={cn("absolute flex flex-col items-center gap-0.5", PANEL)} style={style} onPointerDown={stop}>
+      <ToggleGroup type="single" size="sm" spacing={0.5} orientation="vertical" value={effectActive ? "" : tool} onValueChange={onTool} aria-label="Tool">
+        {TOOLS.map(({ tool: t, label, icon: I }) => (
+          <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]} side={tipSide}>
+            <ToggleGroupItem value={t} aria-label={label} className="size-7 min-w-0 p-0">
+              <I />
             </ToggleGroupItem>
           </Hint>
-        </ToggleGroup>
+        ))}
+      </ToggleGroup>
 
-        <Popover>
-          <Hint label="More shapes and effects">
-            <PopoverTrigger asChild>
-              <Button variant={secondaryActive ? "secondary" : "ghost"} size="icon-sm" aria-label="More tools">
-                {secondaryActive ? <secondaryActive.icon /> : <Ellipsis />}
-              </Button>
-            </PopoverTrigger>
-          </Hint>
-          <PopoverContent side="bottom" align="start" className="w-64">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">Shapes</span>
-                <ToggleGroup type="single" size="sm" spacing={1} value={tool} onValueChange={onTool} aria-label="Shapes">
-                  {SHAPES.map(({ tool: t, label, icon: I }) => (
-                    <ToggleGroupItem key={t} value={t} aria-label={label} className="gap-1.5 px-2">
-                      <I data-icon="inline-start" />
-                      {label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">Markers</span>
-                <ToggleGroup type="single" size="sm" spacing={1} value={tool} onValueChange={onTool} aria-label="Markers">
-                  {MARKERS.map(({ tool: t, label, icon: I }) => (
-                    <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]}>
-                      <ToggleGroupItem value={t} aria-label={label} className="gap-1.5 px-2">
-                        <I data-icon="inline-start" />
-                        {label}
-                      </ToggleGroupItem>
-                    </Hint>
-                  ))}
-                </ToggleGroup>
-              </div>
-              <Separator />
-              <PopoverHeader>
-                <PopoverTitle className="text-xs font-medium text-muted-foreground">Effects</PopoverTitle>
-                <PopoverDescription className="text-xs">Visual only — not a privacy guarantee. Use Redact to hide secrets.</PopoverDescription>
-              </PopoverHeader>
-              <ToggleGroup type="single" size="sm" spacing={1} value={tool} onValueChange={onTool} aria-label="Effects">
-                {EFFECTS.map(({ tool: t, label, icon: I }) => (
-                  <ToggleGroupItem key={t} value={t} aria-label={label} className="gap-1.5 px-2">
-                    <I data-icon="inline-start" />
-                    {label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <Hint label="Colour & size">
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Colour and size">
-                <span className="size-4 rounded-full border border-border" style={{ background: swatch }} />
-              </Button>
-            </PopoverTrigger>
-          </Hint>
-          <PopoverContent side="bottom" align="center" className="w-64">
-            <StylePanel />
-          </PopoverContent>
-        </Popover>
-
-        <Separator orientation="vertical" className="mx-0.5 h-5" />
-
-        <Hint label="Undo" keys={`${mod}+Z`}>
-          <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} aria-label="Undo">
-            <Undo2 />
-          </Button>
+      <Popover>
+        <Hint label="Blur & pixelate" side={tipSide}>
+          <PopoverTrigger asChild>
+            <Button variant={effectActive ? "secondary" : "ghost"} size="icon-sm" aria-label="Effects">
+              {effectActive ? <effectActive.icon /> : <Sparkles />}
+            </Button>
+          </PopoverTrigger>
         </Hint>
-        <Hint label="Redo" keys={isMac ? "⌘+⇧+Z" : "Ctrl+Y"}>
-          <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} aria-label="Redo">
-            <Redo2 />
-          </Button>
-        </Hint>
+        <PopoverContent side={tipSide} align="center" className="w-60">
+          <div className="flex flex-col gap-2">
+            <PopoverHeader>
+              <PopoverTitle className="text-xs font-medium text-muted-foreground">Effects</PopoverTitle>
+              <PopoverDescription className="text-xs">Visual only — not a privacy guarantee. Use Redact to hide secrets.</PopoverDescription>
+            </PopoverHeader>
+            <ToggleGroup type="single" size="sm" spacing={1} value={tool} onValueChange={onTool} aria-label="Effects">
+              {EFFECTS.map(({ tool: t, label, icon: I }) => (
+                <ToggleGroupItem key={t} value={t} aria-label={label} className="gap-1.5 px-2">
+                  <I data-icon="inline-start" />
+                  {label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </PopoverContent>
+      </Popover>
 
-        <Separator orientation="vertical" className="mx-0.5 h-5" />
-
-        <Hint label="Cancel" keys="Esc">
-          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Cancel">
-            <X />
-          </Button>
+      <Popover>
+        <Hint label="Colour & size" side={tipSide}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="Colour and size">
+              <span className="size-4 rounded-sm border border-border" style={{ background: swatch }} />
+            </Button>
+          </PopoverTrigger>
         </Hint>
-        <Hint label="Quick save to your default folder" keys={isMac ? "⌘+⇧+S" : "Ctrl+Shift+S"}>
+        <PopoverContent side={tipSide} align="center" className="w-64">
+          <StylePanel />
+        </PopoverContent>
+      </Popover>
+
+      <Separator className="my-0.5 w-5" />
+
+      <Hint label="Undo" keys={`${mod}+Z`} side={tipSide}>
+        <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} aria-label="Undo">
+          <Undo2 />
+        </Button>
+      </Hint>
+      <Hint label="Redo" keys={isMac ? "⌘+⇧+Z" : "Ctrl+Y"} side={tipSide}>
+        <Button variant="ghost" size="icon-sm" onClick={redo} disabled={!canRedo} aria-label="Redo">
+          <Redo2 />
+        </Button>
+      </Hint>
+    </div>
+  );
+});
+
+interface ActionBarProps {
+  style: React.CSSProperties;
+  tipSide: Side;
+  busy: boolean;
+  onCopy: () => void;
+  onSave: () => void;
+  onQuickSave: () => void;
+  onCancel: () => void;
+}
+
+/** Horizontal output-action bar, docked under the selection's right edge. */
+export const ActionBar = forwardRef<HTMLDivElement, ActionBarProps>(function ActionBar({ style, tipSide, busy, onCopy, onSave, onQuickSave, onCancel }, ref) {
+  const tool = useEditor((s) => s.tool);
+  const note =
+    tool === "redact"
+      ? "Redact permanently replaces these pixels in the copied or saved image."
+      : tool === "blur" || tool === "pixelate"
+        ? "Visual effect only — blurred or pixelated text can sometimes be recovered."
+        : null;
+
+  return (
+    <div ref={ref} className="absolute" style={style} onPointerDown={stop}>
+      <div role="toolbar" aria-label="Screenshot actions" className={cn("flex items-center gap-0.5", PANEL)}>
+        <Hint label="Quick save to your default folder" keys={isMac ? "⌘+⇧+S" : "Ctrl+Shift+S"} side={tipSide}>
           <Button variant="ghost" size="icon-sm" onClick={onQuickSave} disabled={busy} aria-label="Quick save">
             <Zap />
           </Button>
         </Hint>
-        <Hint label="Save as…" keys={`${mod}+S`}>
-          <Button variant="outline" size="sm" onClick={onSave} disabled={busy}>
-            <Download data-icon="inline-start" />
-            Save
+        <Hint label="Save as…" keys={`${mod}+S`} side={tipSide}>
+          <Button variant="ghost" size="icon-sm" onClick={onSave} disabled={busy} aria-label="Save as">
+            <Save />
           </Button>
         </Hint>
-        <Hint label="Copy to clipboard" keys={`${mod}+C`}>
-          <Button size="sm" onClick={onCopy} disabled={busy}>
-            {busy ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-            Copy
+        <Hint label="Copy to clipboard" keys={`${mod}+C`} side={tipSide}>
+          <Button variant="ghost" size="icon-sm" onClick={onCopy} disabled={busy} aria-label="Copy">
+            {busy ? <Check /> : <Copy />}
+          </Button>
+        </Hint>
+        <Separator orientation="vertical" className="mx-0.5 h-5" />
+        <Hint label="Close" keys="Esc" side={tipSide}>
+          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Close" className="text-sky-600 hover:text-sky-700 dark:text-sky-400">
+            <X />
           </Button>
         </Hint>
       </div>
-      {tool === "redact" ? (
-        <p className="rounded-md bg-popover/95 px-2 py-1 text-xs text-popover-foreground shadow">Redact permanently replaces these pixels in the copied or saved image.</p>
-      ) : tool === "blur" || tool === "pixelate" ? (
-        <p className="rounded-md bg-popover/95 px-2 py-1 text-xs text-popover-foreground shadow">Visual effect only — blurred or pixelated text can sometimes be recovered.</p>
+      {note ? (
+        <p className="absolute top-full right-0 mt-1.5 w-max max-w-80 rounded-md bg-popover/95 px-2 py-1 text-xs text-popover-foreground shadow">{note}</p>
       ) : null}
     </div>
   );
-}
-
-export const TOOLBAR_HEIGHT = 44;
-export const TOOLBAR_WIDTH = 560;
+});

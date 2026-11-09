@@ -127,12 +127,26 @@ function PixelateShape({ item, src }: { item: ItemOf<"pixelate">; src: PreviewSo
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(src.img, sx, sy, cols * block, rows * block, 0, 0, cols, rows);
+    let disposed = false;
     try {
-      setDataUrl(c.toDataURL());
+      c.toBlob((blob) => {
+        if (disposed) return;
+        setDataUrl(blob ? URL.createObjectURL(blob) : null);
+      }, "image/png");
     } catch {
       setDataUrl(null);
     }
+    return () => {
+      disposed = true;
+    };
   }, [src.img, sx, sy, cols, rows, block]);
+
+  useEffect(
+    () => () => {
+      if (dataUrl) URL.revokeObjectURL(dataUrl);
+    },
+    [dataUrl],
+  );
 
   const cid = `clip-${item.id}`;
   return (

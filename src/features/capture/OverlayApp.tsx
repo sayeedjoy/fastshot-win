@@ -60,12 +60,17 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
         if (!alive) return;
         setThemePreference(prefs.theme);
         useCapture.getState().setMagnifier(prefs.showMagnifier);
-        useEditor.getState().reset({
-          color: prefs.annotationColor,
-          strokeWidth: prefs.strokeWidth,
-          fontSize: prefs.fontSize,
-          redactColor: prefs.redactColor,
-        });
+        // Settings load independently of the frozen frame. Merge the defaults
+        // without resetting items that the user may already have drawn.
+        useEditor.setState((state) => ({
+          style: {
+            ...state.style,
+            color: prefs.annotationColor,
+            strokeWidth: prefs.strokeWidth,
+            fontSize: prefs.fontSize,
+            redactColor: prefs.redactColor,
+          },
+        }));
       })
       .catch(() => undefined);
     void loadAnnotationFont();
@@ -103,13 +108,20 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
       if (!c.crop || !c.session || c.phase !== "editing") return;
       c.setPhase("exporting");
       c.setNotice(null);
+      const request = {
+        sessionId: c.session.sessionId,
+        monitorIndex: c.session.monitorIndex,
+        destination,
+        ...toRenderRequest(c.crop, useEditor.getState().items),
+      };
+      if (destination === "clipboard") {
+        // Rust hides the overlay immediately and copies in the background;
+        // any failure is reported in the main window.
+        void api.exportCapture(request).catch(() => undefined);
+        return;
+      }
       try {
-        const res = await api.exportCapture({
-          sessionId: c.session.sessionId,
-          monitorIndex: c.session.monitorIndex,
-          destination,
-          ...toRenderRequest(c.crop, useEditor.getState().items),
-        });
+        const res = await api.exportCapture(request);
         if (!res.completed) {
           c.setPhase("editing");
           return;
@@ -117,9 +129,9 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
         c.setPhase("done");
         c.setNotice({
           kind: "success",
-          message: destination === "clipboard" ? `Copied ${res.width} × ${res.height} image` : `Saved to ${res.path}`,
+          message: `Saved to ${res.path}`,
         });
-        window.setTimeout(cancel, destination === "clipboard" ? 650 : 1600);
+        window.setTimeout(cancel, 1600);
       } catch (e) {
         c.setPhase("editing");
         c.setNotice({ kind: "error", message: errorMessage(e) });

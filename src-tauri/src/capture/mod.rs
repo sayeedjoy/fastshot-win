@@ -55,40 +55,17 @@ fn capture_one(m: &Monitor) -> AppResult<FrozenMonitor> {
     })
 }
 
-/// Snapshot every monitor in parallel. Monitors that fail are skipped; the
-/// call fails only if none could be captured.
+/// Snapshot every monitor from one stable enumeration. Monitors that fail are
+/// skipped; the call fails only if none could be captured.
 pub fn freeze_all_monitors() -> AppResult<Vec<FrozenMonitor>> {
-    let count = Monitor::all()
-        .map_err(|e| AppError::Capture(e.to_string()))?
-        .len();
-    if count == 0 {
+    let monitors = Monitor::all().map_err(|e| AppError::Capture(e.to_string()))?;
+    if monitors.is_empty() {
         return Err(AppError::Capture("No displays were found.".into()));
     }
-    // `xcap::Monitor` isn't `Send`, so each worker enumerates and picks its own.
-    let results: Vec<AppResult<FrozenMonitor>> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..count)
-            .map(|i| {
-                s.spawn(move || {
-                    let monitors = Monitor::all().map_err(|e| AppError::Capture(e.to_string()))?;
-                    let m = monitors
-                        .get(i)
-                        .ok_or_else(|| AppError::Capture("A display was disconnected.".into()))?;
-                    capture_one(m)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join()
-                    .unwrap_or_else(|_| Err(AppError::Capture("capture thread panicked".into())))
-            })
-            .collect()
-    });
     let mut frozen = Vec::new();
     let mut last_err = None;
-    for r in results {
-        match r {
+    for monitor in &monitors {
+        match capture_one(monitor) {
             Ok(f) => frozen.push(f),
             Err(e) => last_err = Some(e),
         }
