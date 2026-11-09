@@ -84,13 +84,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::CloseRequested { api, .. } if window.label() == windows::MAIN => {
+            WindowEvent::CloseRequested { .. } if window.label() == windows::MAIN => {
                 if settings::current(window.app_handle()).quit_on_close {
                     window.app_handle().exit(0);
                 } else {
-                    // Stay in the tray (SYS-01).
-                    api.prevent_close();
-                    let _ = window.hide();
+                    // Allow the settings WebView to be destroyed. The tray and
+                    // shortcut keep running, and show_main recreates it.
                     app_menu::set_foreground(window.app_handle(), false);
                 }
             }

@@ -41,11 +41,13 @@ fn run_capture<R: Runtime>(
     let manager = app.state::<SessionManager>();
     let guard = manager.try_prepare().ok_or(AppError::Busy)?;
 
-    // Keep our own settings window out of the screenshot.
+    // Keep our own settings window out of the screenshot. Settings is cheap to
+    // recreate and is not part of the latency-sensitive capture path, so
+    // destroy its WebView instead of retaining another renderer while hidden.
     if let Some(main) = app.get_webview_window(windows::MAIN)
         && main.is_visible().unwrap_or(false)
     {
-        let _ = main.hide();
+        let _ = main.destroy();
         app_menu::set_foreground(app, false);
         // One or two compositor frames are enough for the hidden window to
         // disappear. The previous 250 ms pause made capture feel unresponsive.

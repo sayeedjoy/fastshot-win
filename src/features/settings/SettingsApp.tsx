@@ -74,8 +74,8 @@ function useCompactSettingsLayout() {
 export default function SettingsApp() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [view, setView] = useState<MainView>("settings");
-  const [banner, setBanner] = useState<string | null>(null);
+  const [view, setView] = useState<MainView>(() => window.__FASTSHOT_MAIN__?.view ?? "settings");
+  const [banner, setBanner] = useState<string | null>(() => window.__FASTSHOT_MAIN__?.error ?? null);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [tab, setTab] = useState<string>("general");
   const compactLayout = useCompactSettingsLayout();
@@ -225,7 +225,7 @@ export default function SettingsApp() {
                 ))}
               </TabsList>
               <div className="flex flex-col gap-1 max-[680px]:hidden">
-                <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => void getCurrentWindow().hide()}>
+                <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => void getCurrentWindow().close()}>
                   <X data-icon="inline-start" />
                   Close window
                 </Button>

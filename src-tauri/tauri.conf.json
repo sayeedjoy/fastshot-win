@@ -10,18 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "FastShot",
-        "width": 760,
-        "height": 640,
-        "minWidth": 560,
-        "minHeight": 480,
-        "center": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": {
         "default-src": "'self'",

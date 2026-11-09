@@ -94,6 +94,8 @@ export interface OverlayBoot {
 
 declare global {
   interface Window {
+    /** Initial route for a settings window that Rust created on demand. */
+    __FASTSHOT_MAIN__?: NavigatePayload;
     /** Marks a pre-warmed capture WebView, even before it has a session. */
     __FASTSHOT_OVERLAY_WINDOW__?: boolean;
     __FASTSHOT_OVERLAY__?: OverlayBoot;

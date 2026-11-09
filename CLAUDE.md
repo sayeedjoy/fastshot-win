@@ -30,13 +30,13 @@ On Windows, if Tauri reports `cargo metadata: program not found`, prepend `$env:
 
 ### One frontend bundle, two kinds of window
 [src/main.tsx](src/main.tsx) chooses the UI at runtime, and each UI is lazy-loaded:
-- **`main` window**: `SettingsApp` (settings, onboarding, permission recovery). It starts hidden. Rust shows it and sends a `navigate` event (`{view, error}`) to switch views (`show_main` in [src-tauri/src/desktop/windows.rs](src-tauri/src/desktop/windows.rs)).
+- **`main` window**: `SettingsApp` (settings, onboarding, permission recovery). Rust creates it on demand and destroys it when closed, then sends a `navigate` event (`{view, error}`) to switch an existing window (`show_main` in [src-tauri/src/desktop/windows.rs](src-tauri/src/desktop/windows.rs)).
 - **`overlay-N` windows**: one per monitor, running `OverlayApp` (capture selection plus the editor). They are detected through `window.__FASTSHOT_OVERLAY_WINDOW__` / `__FASTSHOT_OVERLAY__`, which Rust injects with an initialization script.
 
-Overlays are **pre-warmed** at startup and reused, never rebuilt per capture. To start a capture, Rust `eval`s a new `__FASTSHOT_OVERLAY__` boot payload and dispatches a `fastshot:capture-start` DOM event. `OverlayHost` remounts `OverlayApp` keyed on `sessionId:monitorIndex`. When a capture ends, overlays are hidden, not closed.
+Overlays are **pre-warmed** at startup and reused for fast captures. To start a capture, Rust resumes them, `eval`s a new `__FASTSHOT_OVERLAY__` boot payload and dispatches a `fastshot:capture-start` DOM event. `OverlayHost` remounts `OverlayApp` keyed on `sessionId:monitorIndex`. When a capture ends, overlays are hidden, kept fully warm briefly, then suspended with a low WebView2 memory target on Windows. A long idle timeout destroys them; the next capture rebuilds them on demand.
 
 ### Capture flow (Rust, [src-tauri/src/desktop/mod.rs](src-tauri/src/desktop/mod.rs))
-`trigger_capture` (from the tray, the global shortcut, or the `begin_capture` command) → hide the settings window → check permission (macOS asks at most once per run) → `capture::freeze_all_monitors()` freezes the pixels **before any overlay is shown** → build the `Session` → `windows::open_overlays`. Each overlay calls `overlay_ready` when it has painted. A 2.5 s fallback reveals overlays regardless, so the user can always press Esc.
+`trigger_capture` (from the tray, the global shortcut, or the `begin_capture` command) → destroy the settings window → check permission (macOS asks at most once per run) → `capture::freeze_all_monitors()` freezes the pixels **before any overlay is shown** → build the `Session` → `windows::open_overlays`. Each overlay calls `overlay_ready` when it has painted. A 2.5 s fallback reveals overlays regardless, so the user can always press Esc.
 
 ### Sessions and frame transport
 - [session.rs](src-tauri/src/session.rs): there is only ever one active session (`SessionManager::try_prepare` returns `Busy` otherwise). Frozen frames live **only in memory** and are freed when the session ends. Nothing is written to disk.
