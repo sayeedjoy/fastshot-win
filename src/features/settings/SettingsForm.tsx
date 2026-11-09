@@ -257,6 +257,19 @@ export function GeneralSettings({ settings, save, shortcutError, defaultSaveDire
         <SettingRow id="auto-select-window" label="Click to select a window" description="In Region mode, clicking without dragging captures the window under the pointer. Turn off to select only by dragging.">
           <Switch id="auto-select-window" checked={settings.autoSelectWindow} onCheckedChange={(autoSelectWindow) => save({ autoSelectWindow })} />
         </SettingRow>
+
+        {!isMac ? (
+          <>
+            <FieldSeparator />
+            <SettingRow
+              id="native-overlay"
+              label="Lightweight capture overlay (experimental)"
+              description="Uses a native window instead of a web view, so nothing stays in memory between captures. Select and copy only: annotations, redaction and saving need the standard overlay. Applies to the next capture; restart FastShot to free the standard overlay right away."
+            >
+              <Switch id="native-overlay" checked={settings.nativeOverlay} onCheckedChange={(nativeOverlay) => save({ nativeOverlay })} />
+            </SettingRow>
+          </>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection icon={FolderOpen} title="Saving" description={`Used by Save and Quick save (${isMac ? "⌘⇧S" : "Ctrl+Shift+S"}).`}>

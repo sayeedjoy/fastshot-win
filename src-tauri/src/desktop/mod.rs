@@ -1,5 +1,6 @@
 pub mod app_menu;
 pub mod autostart;
+pub mod native_overlay;
 pub mod protocol;
 pub mod shortcut;
 pub mod tray;
@@ -78,6 +79,18 @@ fn run_capture<R: Runtime>(
     let mode = mode.unwrap_or_else(|| settings::current(app).default_mode);
     let session = Arc::new(Session::new(mode, monitors, window_list, focus_index));
 
+    manager.install(&guard, session.clone());
+    drop(guard);
+
+    // Experimental native overlay: no WebView, nothing kept warm between
+    // captures. Falls back to the WebView overlay if it can't start.
+    if native_overlay::enabled(app) {
+        match native_overlay::open(app, &session) {
+            Ok(()) => return Ok(()),
+            Err(e) => eprintln!("{e}; using the WebView overlay"),
+        }
+    }
+
     // Encode previews in the background so they're ready when the pages ask.
     for i in 0..session.frames.len() {
         let s = session.clone();
@@ -85,9 +98,6 @@ fn run_capture<R: Runtime>(
             let _ = s.frames[i].preview_png();
         });
     }
-
-    manager.install(&guard, session.clone());
-    drop(guard);
     if let Err(e) = windows::open_overlays(app, &session) {
         end_capture(app, Some(&session.id));
         return Err(e);
@@ -99,6 +109,7 @@ fn run_capture<R: Runtime>(
 /// here and in the overlay WebViews (which drop their decoded copy).
 pub fn end_capture<R: Runtime>(app: &AppHandle<R>, session_id: Option<&str>) {
     if let Some(session) = app.state::<SessionManager>().take(session_id) {
+        native_overlay::close(&session.id);
         windows::close_overlays(app, &session.id);
     }
 }

@@ -78,7 +78,9 @@ pub fn run() {
 
             // Pay WebView startup cost while idle. Captures can then reuse and
             // reveal these hidden overlays instead of creating them on demand.
-            if let Err(e) = windows::prewarm_overlays(&handle) {
+            // With the native overlay there is nothing to pre-warm.
+            if desktop::native_overlay::enabled(&handle) {
+            } else if let Err(e) = windows::prewarm_overlays(&handle) {
                 eprintln!("FastShot could not pre-warm capture overlays: {e}");
             }
             Ok(())

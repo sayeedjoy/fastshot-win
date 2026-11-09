@@ -23,6 +23,8 @@ export interface Settings {
   showMagnifier: boolean;
   autoSelectWindow: boolean;
   launchAtLogin: boolean;
+  /** Experimental, Windows only: native capture overlay (selection + copy). */
+  nativeOverlay: boolean;
 }
 
 export interface FilenamePreview {

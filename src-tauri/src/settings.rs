@@ -50,6 +50,9 @@ pub struct Settings {
     pub auto_select_window: bool,
     /// Mirrors the OS login-item state; the OS is the source of truth.
     pub launch_at_login: bool,
+    /// Experimental (Windows): capture with a native overlay instead of a
+    /// pre-warmed WebView. Lighter while idle; selection and copy only.
+    pub native_overlay: bool,
 }
 
 impl Default for Settings {
@@ -71,6 +74,7 @@ impl Default for Settings {
             show_magnifier: true,
             auto_select_window: true,
             launch_at_login: false,
+            native_overlay: false,
         }
     }
 }

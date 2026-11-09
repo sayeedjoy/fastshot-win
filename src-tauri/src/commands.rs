@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -19,7 +19,7 @@ use crate::imaging::encode::{ImageFormat, encode};
 use crate::imaging::model::RenderRequest;
 use crate::imaging::render::render_export;
 use crate::naming::{self, NameContext};
-use crate::session::{CaptureMode, SessionManager};
+use crate::session::{CaptureMode, Session, SessionManager};
 use crate::settings::{self, Settings};
 
 // ---------------------------------------------------------------- overlay ---
@@ -208,16 +208,8 @@ async fn copy_to_clipboard(
     let index = args.monitor_index;
     let request = args.request;
     let worker = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || -> AppResult<(u32, u32)> {
-        let image = render_export(&session.frames[index].image, &request)
-            .map_err(AppError::InvalidInput)?;
-        let (width, height) = image.dimensions();
-        let img = tauri::image::Image::new_owned(image.into_raw(), width, height);
-        worker
-            .clipboard()
-            .write_image(&img)
-            .map_err(|e| AppError::Clipboard(e.to_string()))?;
-        Ok((width, height))
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        render_to_clipboard(&worker, &session, index, &request)
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))
@@ -376,13 +368,10 @@ pub async fn extract_text(app: AppHandle, args: ExtractArgs) -> AppResult<Extrac
 
     let index = args.monitor_index;
     let request = args.request;
-    let text = tauri::async_runtime::spawn_blocking(move || -> AppResult<String> {
-        let image = render_export(&session.frames[index].image, &request)
-            .map_err(AppError::InvalidInput)?;
-        crate::ocr::recognize(&image).map_err(AppError::Ocr)
-    })
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))??;
+    let text =
+        tauri::async_runtime::spawn_blocking(move || recognize_selection(&session, index, &request))
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))??;
 
     if text.is_empty() {
         return Ok(ExtractResult {
@@ -391,14 +380,56 @@ pub async fn extract_text(app: AppHandle, args: ExtractArgs) -> AppResult<Extrac
         });
     }
     let lines = text.lines().count();
+    finish_text_copy(&app, &args.session_id, text)?;
+    Ok(ExtractResult { found: true, lines })
+}
+
+// ------------------------------------------------- shared output helpers ---
+// Used by these commands and by the native overlay, so both overlays produce
+// output through the same compositor (SEC-04) and the same clipboard calls.
+
+/// Composite `request` and put the image on the clipboard. Blocking.
+pub(crate) fn render_to_clipboard<R: Runtime>(
+    app: &AppHandle<R>,
+    session: &Session,
+    index: usize,
+    request: &RenderRequest,
+) -> AppResult<(u32, u32)> {
+    let frame = session.frame(index)?;
+    let image = render_export(&frame.image, request).map_err(AppError::InvalidInput)?;
+    let (width, height) = image.dimensions();
+    let img = tauri::image::Image::new_owned(image.into_raw(), width, height);
+    app.clipboard()
+        .write_image(&img)
+        .map_err(|e| AppError::Clipboard(e.to_string()))?;
+    Ok((width, height))
+}
+
+/// OCR the composited selection (redactions already applied). Blocking.
+pub(crate) fn recognize_selection(
+    session: &Session,
+    index: usize,
+    request: &RenderRequest,
+) -> AppResult<String> {
+    let frame = session.frame(index)?;
+    let image = render_export(&frame.image, request).map_err(AppError::InvalidInput)?;
+    crate::ocr::recognize(&image).map_err(AppError::Ocr)
+}
+
+/// Copy recognised text if the session is still active, then end it.
+pub(crate) fn finish_text_copy<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    text: String,
+) -> AppResult<()> {
     app.state::<SessionManager>()
-        .complete_if_active(&args.session_id, || {
+        .complete_if_active(session_id, || {
             app.clipboard()
                 .write_text(text)
                 .map_err(|e| AppError::Clipboard(e.to_string()))
         })?;
-    desktop::end_capture(&app, Some(&args.session_id));
-    Ok(ExtractResult { found: true, lines })
+    desktop::end_capture(app, Some(session_id));
+    Ok(())
 }
 
 // --------------------------------------------------------------- settings ---
