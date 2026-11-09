@@ -1,0 +1,77 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-installers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64 MSI
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rustTargets: x86_64-pc-windows-msvc
+            bundle: msi
+            artifact: fastshot-windows-x64-msi
+            signingIdentity: ""
+          - name: macOS Universal DMG
+            os: macos-latest
+            target: universal-apple-darwin
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle: dmg
+            artifact: fastshot-macos-universal-dmg
+            signingIdentity: "-"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.16.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          shared-key: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload installer
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.signingIdentity }}
+        with:
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: ${{ matrix.artifact }}
