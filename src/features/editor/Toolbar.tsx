@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { forwardRef, memo } from "react";
+import { forwardRef, memo, useState } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -48,12 +48,15 @@ const TOOLS: { tool: Tool; label: string; icon: Icon }[] = [
   { tool: "pen", label: "Pen", icon: Pencil },
   { tool: "line", label: "Line", icon: Minus },
   { tool: "arrow", label: "Arrow", icon: ArrowUpRight },
-  { tool: "rect", label: "Rectangle", icon: Square },
-  { tool: "ellipse", label: "Ellipse", icon: Circle },
   { tool: "highlight", label: "Highlighter", icon: Highlighter },
   { tool: "text", label: "Text", icon: Type },
   { tool: "step", label: "Steps", icon: ListOrdered },
   { tool: "redact", label: "Redact — permanently replaces pixels", icon: ShieldCheck },
+];
+
+const SHAPES: { tool: Tool; label: string; icon: Icon }[] = [
+  { tool: "rect", label: "Rectangle", icon: Square },
+  { tool: "ellipse", label: "Ellipse", icon: Circle },
 ];
 
 const EFFECTS: { tool: Tool; label: string; icon: Icon }[] = [
@@ -159,12 +162,53 @@ const ToolColumnBody = memo(function ToolColumnBody({ tipSide }: { tipSide: Side
   const swatch = useEditor((s) => (s.tool === "redact" ? s.style.redactColor : s.tool === "highlight" ? s.style.highlightColor : s.style.color));
 
   const effectActive = EFFECTS.find((t) => t.tool === tool);
+  const shapeActive = SHAPES.find((t) => t.tool === tool);
+  const [shapesOpen, setShapesOpen] = useState(false);
   const onTool = (v: string) => v && setTool(v as Tool);
 
   return (
     <>
-      <ToggleGroup type="single" size="sm" spacing={0.5} orientation="vertical" value={effectActive ? "" : tool} onValueChange={onTool} aria-label="Tool">
-        {TOOLS.map(({ tool: t, label, icon: I }) => (
+      <ToggleGroup type="single" size="sm" spacing={0.5} orientation="vertical" value={tool} onValueChange={onTool} aria-label="Selection and drawing tools">
+        {TOOLS.slice(0, 4).map(({ tool: t, label, icon: I }) => (
+          <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]} side={tipSide}>
+            <ToggleGroupItem value={t} aria-label={label} className={cn("size-7 min-w-0 p-0", TOOL_CONTROL)}>
+              <I />
+            </ToggleGroupItem>
+          </Hint>
+        ))}
+      </ToggleGroup>
+
+      <Popover open={shapesOpen} onOpenChange={setShapesOpen}>
+        <Hint label="Rectangle & ellipse" keys="R / E" side={tipSide}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="Shapes" aria-pressed={!!shapeActive} className={TOOL_CONTROL}>
+              {shapeActive ? <shapeActive.icon /> : <Square />}
+            </Button>
+          </PopoverTrigger>
+        </Hint>
+        <PopoverContent side={tipSide} align="center" className="w-64">
+          <div className="flex flex-col gap-2">
+            <PopoverHeader>
+              <PopoverTitle className="text-xs font-medium text-muted-foreground">Shapes</PopoverTitle>
+            </PopoverHeader>
+            <ToggleGroup type="single" size="sm" spacing={1} value={tool} onValueChange={(value) => {
+              if (!value) return;
+              onTool(value);
+              setShapesOpen(false);
+            }} aria-label="Shape">
+              {SHAPES.map(({ tool: t, label, icon: I }) => (
+                <ToggleGroupItem key={t} value={t} aria-label={label} className="gap-1.5 px-2">
+                  <I data-icon="inline-start" />
+                  {label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <ToggleGroup type="single" size="sm" spacing={0.5} orientation="vertical" value={tool} onValueChange={onTool} aria-label="Annotation tools">
+        {TOOLS.slice(4).map(({ tool: t, label, icon: I }) => (
           <Hint key={t} label={label} keys={TOOL_SHORTCUT[t]} side={tipSide}>
             <ToggleGroupItem value={t} aria-label={label} className={cn("size-7 min-w-0 p-0", TOOL_CONTROL)}>
               <I />
