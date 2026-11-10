@@ -156,22 +156,25 @@ fn run(
     drop(session); // the handler keeps its own reference
     OVERLAY.with(|cell| *cell.borrow_mut() = Some(overlay));
 
+    // If startup timed out, do not reveal a late selector over the fallback.
+    let accepted = ready.send(Ok(())).is_ok();
     // SAFETY: windows created on this thread; no state borrow is held, so
     // the messages these calls send can be handled normally.
     unsafe {
-        for &hwnd in &hwnds {
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        if accepted {
+            for &hwnd in &hwnds {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            let _ = SetForegroundWindow(focus);
+            let _ = SetFocus(Some(focus));
         }
-        let _ = SetForegroundWindow(focus);
-        let _ = SetFocus(Some(focus));
     }
-    let _ = ready.send(Ok(()));
     eprintln!("native overlay shown in {} ms", started.elapsed().as_millis());
 
     let mut msg = MSG::default();
     // SAFETY: standard message loop for windows owned by this thread.
     unsafe {
-        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+        while accepted && GetMessageW(&mut msg, None, 0, 0).0 > 0 {
             if msg.hwnd.0.is_null() && msg.message == WM_APP_NOTICE {
                 OVERLAY.with(|cell| {
                     if let Ok(mut guard) = cell.try_borrow_mut()
@@ -500,6 +503,9 @@ impl Overlay {
         if let Some((i, r)) = self.hover {
             decor(i, r, false);
         }
+        if let Some((i, r)) = self.edit_button() {
+            out.push((i, inflate(r, self.surfaces[i].px(1.0))));
+        }
         if let Some(s) = self.surfaces.get(self.pointer) {
             out.push((self.pointer, s.hint_band()));
         }
@@ -541,6 +547,25 @@ impl Overlay {
         (r.right - r.left >= 1 && r.bottom - r.top >= 1).then(|| (i, self.surfaces[i].to_image(r)))
     }
 
+    fn edit_button(&self) -> Option<(usize, RECT)> {
+        let (i, _) = self.selection?;
+        let s = &self.surfaces[i];
+        let width = s.px(120.0).min(s.width);
+        let left = ((s.width - width) / 2).max(0);
+        let top = (s.height - s.px(106.0)).max(0);
+        Some((i, RECT { left, top, right: left + width, bottom: (top + s.px(36.0)).min(s.height) }))
+    }
+
+    fn edit(&mut self, fx: &mut Effects) {
+        if let Some((monitor, crop)) = self.selection_crop() {
+            self.update(|ov| {
+                ov.busy = true;
+                ov.notice = Some("Opening editor... Esc to cancel".into());
+            });
+            fx.action = Some(Action::Edit { monitor, crop });
+        }
+    }
+
     fn handle(&mut self, i: usize, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Option<Effects> {
         let mut fx = Effects::default();
         match msg {
@@ -578,6 +603,10 @@ impl Overlay {
             }
             WM_LBUTTONDOWN if !self.busy => {
                 let p = clamp_point(point(lparam), self.surfaces[i].client());
+                if self.edit_button().is_some_and(|(m, r)| m == i && contains(r, p)) {
+                    self.edit(&mut fx);
+                    return Some(fx);
+                }
                 self.drag = Some(Drag {
                     monitor: i,
                     start: p,
@@ -623,6 +652,20 @@ impl Overlay {
                 if key == VK_ESCAPE.0 {
                     fx.action = Some(Action::Cancel);
                 } else if self.busy {
+                } else if !ctrl && key == b'E' as u16 {
+                    self.edit(&mut fx);
+                } else if !ctrl && !shift && (b'1' as u16..=b'3' as u16).contains(&key) {
+                    self.update(|ov| {
+                        ov.mode = match key as u8 {
+                            b'2' => CaptureMode::Window,
+                            b'3' => CaptureMode::Display,
+                            _ => CaptureMode::Region,
+                        };
+                        ov.selection = None;
+                        ov.hover = None;
+                        ov.drag = None;
+                    });
+                    fx.release = true;
                 } else if key == VK_RETURN.0 || (ctrl && !shift && key == b'C' as u16) {
                     self.copy(&mut fx);
                 } else if ctrl && shift && key == b'C' as u16 {
@@ -691,6 +734,17 @@ impl Overlay {
                     let y = s.height - s.px(56.0);
                     pill_at(dc, s, &text, x, y, pad);
                 }
+                if let Some((monitor, button)) = self.edit_button()
+                    && monitor == i
+                {
+                    let brush = CreateSolidBrush(PANEL);
+                    FillRect(dc, &button, brush);
+                    let _ = DeleteObject(brush.into());
+                    border(dc, button, s.px(1.0));
+                    let text = "Edit (E)";
+                    let size = measure(dc, s, text);
+                    pill_at(dc, s, text, button.left + ((button.right - button.left - size.0) / 2).max(0), button.top, 0);
+                }
                 let _ = BitBlt(hdc, r.left, r.top, w, h, Some(dc), r.left, r.top, SRCCOPY);
             }
             let _ = EndPaint(s.hwnd, &ps);
@@ -721,7 +775,7 @@ impl Overlay {
             return n.clone();
         }
         if self.selection.is_some() {
-            return "Enter or double-click to copy  ·  Ctrl+Shift+C copy text  ·  Esc cancel".into();
+            return "E edit / save  ·  Enter copy  ·  Ctrl+Shift+C copy text  ·  Esc cancel".into();
         }
         match self.mode {
             CaptureMode::Display => "Click a display  ·  Esc to cancel".into(),
@@ -1013,6 +1067,18 @@ mod tests {
     #[test]
     #[ignore = "opens real overlay windows on the desktop"]
     fn native_overlay_drag_and_copy() {
+        drive_native_selection(false, false);
+    }
+
+    #[test]
+    #[ignore = "opens real overlay windows on the desktop"]
+    fn native_overlay_edit_after_idle() {
+        drive_native_selection(true, false);
+        std::thread::sleep(Duration::from_secs(31));
+        drive_native_selection(true, true);
+    }
+
+    fn drive_native_selection(edit: bool, click: bool) {
         use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
 
         let monitors = crate::capture::freeze_all_monitors().unwrap();
@@ -1034,11 +1100,24 @@ mod tests {
             PostMessageW(Some(hwnd), WM_MOUSEMOVE, WPARAM(1), at(250, 200)).unwrap();
             PostMessageW(Some(hwnd), WM_MOUSEMOVE, WPARAM(1), at(400, 320)).unwrap();
             PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), at(400, 320)).unwrap();
-            PostMessageW(Some(hwnd), WM_KEYDOWN, WPARAM(VK_RETURN.0 as usize), LPARAM(0)).unwrap();
+            if click {
+                let mut bounds = RECT::default();
+                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut bounds).unwrap();
+                let scale = session.frames[0].scale_factor.max(1.0);
+                let y = bounds.bottom - (90.0 * scale).round() as i32;
+                PostMessageW(Some(hwnd), WM_LBUTTONDOWN, WPARAM(1), at(bounds.right / 2, y)).unwrap();
+                PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), at(bounds.right / 2, y)).unwrap();
+            } else {
+                let key = if edit { b'E' as usize } else { VK_RETURN.0 as usize };
+                PostMessageW(Some(hwnd), WM_KEYDOWN, WPARAM(key), LPARAM(0)).unwrap();
+            }
         }
         let action = rx.recv_timeout(Duration::from_secs(3)).expect("no action");
         match action {
-            Action::Copy { crop, .. } => {
+            Action::Copy { crop, .. } if !edit => {
+                assert_eq!((crop.width, crop.height), (300, 200), "{crop:?}");
+            }
+            Action::Edit { crop, .. } if edit => {
                 assert_eq!((crop.width, crop.height), (300, 200), "{crop:?}");
             }
             other => panic!("unexpected {other:?}"),

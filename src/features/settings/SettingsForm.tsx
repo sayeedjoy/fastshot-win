@@ -263,8 +263,8 @@ export function GeneralSettings({ settings, save, shortcutError, defaultSaveDire
             <FieldSeparator />
             <SettingRow
               id="native-overlay"
-              label="Lightweight capture overlay (experimental)"
-              description="Uses a native window instead of a web view, so nothing stays in memory between captures. Select and copy only: annotations, redaction and saving need the standard overlay. Applies to the next capture; restart FastShot to free the standard overlay right away."
+              label="Native capture (experimental)"
+              description="Uses less memory while idle, with a separate Edit step for annotations and saving. Leave off for the full editor to stay ready and appear directly after selection. Applies to the next capture; restart to release unused windows."
             >
               <Switch id="native-overlay" checked={settings.nativeOverlay} onCheckedChange={(nativeOverlay) => save({ nativeOverlay })} />
             </SettingRow>

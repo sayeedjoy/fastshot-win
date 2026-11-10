@@ -43,7 +43,12 @@ export const useCapture = create<CaptureState>((set) => ({
   setMagnifier: (magnifier) => set({ magnifier }),
   autoSelectWindow: true,
   setAutoSelectWindow: (autoSelectWindow) => set({ autoSelectWindow }),
-  setSession: (session) => set({ session, mode: session.mode }),
+  setSession: (session) => set({
+    session,
+    mode: session.mode,
+    crop: session.initialCrop ?? null,
+    phase: session.initialCrop ? "editing" : "selecting",
+  }),
   setPhase: (phase) => set({ phase }),
   setMode: (mode) => set({ mode }),
   setCrop: (crop) => set({ crop }),

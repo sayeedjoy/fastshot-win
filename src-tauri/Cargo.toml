@@ -61,9 +61,6 @@ windows = { version = "0.62", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }
-# Native WebView2 lifecycle controls used to trim and suspend hidden capture
-# overlays without paying the cost of rebuilding them for every capture.
-webview2-com = "0.39"
 
 [profile.release]
 codegen-units = 1

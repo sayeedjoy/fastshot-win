@@ -45,7 +45,6 @@ export default function OverlayApp({ boot }: { boot: OverlayBoot }) {
       .then((s) => {
         if (!alive) return;
         useCapture.getState().setSession(s);
-        useCapture.getState().setPhase("selecting");
       })
       .catch((e) => {
         if (!alive) return;

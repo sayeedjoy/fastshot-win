@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::capture::{FrozenMonitor, WindowCandidate};
 use crate::error::{AppError, AppResult};
-use crate::geometry::MonitorGeometry;
+use crate::geometry::{MonitorGeometry, PixelRect, validate_crop};
 use crate::imaging::encode::encode_preview;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,6 +50,14 @@ pub struct Session {
     pub windows: Vec<WindowCandidate>,
     /// Overlay that receives keyboard focus (the monitor under the cursor).
     pub focus_index: usize,
+    editor: Mutex<Option<EditorSelection>>,
+    pub editor_ready: AtomicBool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorSelection {
+    pub monitor: usize,
+    pub crop: PixelRect,
 }
 
 impl Session {
@@ -76,7 +84,26 @@ impl Session {
             frames,
             windows,
             focus_index,
+            editor: Mutex::new(None),
+            editor_ready: AtomicBool::new(false),
         }
+    }
+
+    /// Preserve the native selection in this frozen session; never recapture.
+    pub fn request_editor(&self, monitor: usize, crop: PixelRect) -> AppResult<()> {
+        let frame = self.frame(monitor)?;
+        let crop = validate_crop(crop, frame.image.width(), frame.image.height())
+            .map_err(AppError::InvalidInput)?;
+        let mut editor = self.editor.lock().unwrap();
+        if editor.is_some() {
+            return Err(AppError::Busy);
+        }
+        *editor = Some(EditorSelection { monitor, crop });
+        Ok(())
+    }
+
+    pub fn editor_selection(&self) -> Option<EditorSelection> {
+        *self.editor.lock().unwrap()
     }
 
     pub fn frame(&self, index: usize) -> AppResult<&Frame> {
@@ -207,6 +234,29 @@ mod tests {
             // capture fails here; guard dropped without install
         }
         assert!(mgr.try_prepare().is_some());
+    }
+
+    #[test]
+    fn editor_handoff_preserves_the_frozen_frame_and_selection() {
+        let s = session();
+        let pixels = s.frames[0].image.as_ptr();
+        let crop = PixelRect::new(1, 1, 2, 3);
+        s.request_editor(0, crop).unwrap();
+        assert_eq!(s.editor_selection(), Some(EditorSelection { monitor: 0, crop }));
+        assert_eq!(s.frames[0].image.as_ptr(), pixels);
+        assert!(matches!(s.request_editor(0, crop), Err(AppError::Busy)));
+        assert!(!s.editor_ready.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn editor_handoff_rejects_invalid_selections_without_claiming_the_editor() {
+        let s = session();
+        assert!(s.request_editor(1, PixelRect::new(0, 0, 1, 1)).is_err());
+        assert!(s.request_editor(0, PixelRect::new(0, 0, 0, 1)).is_err());
+        assert!(s.request_editor(0, PixelRect::new(9, 9, 1, 1)).is_err());
+        assert!(s.editor_selection().is_none());
+        s.request_editor(0, PixelRect::new(3, 3, 2, 2)).unwrap();
+        assert_eq!(s.editor_selection().unwrap().crop, PixelRect::new(3, 3, 1, 1));
     }
 
     #[test]

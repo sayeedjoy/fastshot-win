@@ -585,7 +585,7 @@ export function Stage({ session, img, onClaim, onCopy, onCopyText, onSave, onQui
         ) : null}
 
         {active ? (
-          <rect x={active.x} y={active.y} width={active.width} height={active.height} fill="none" stroke="#0ea5e9" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          <rect x={active.x} y={active.y} width={active.width} height={active.height} fill="none" stroke="var(--capture)" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
         ) : null}
 
         {crop && phase === "editing" && !textEdit ? <CropHandles crop={crop} sx={sx} sy={sy} /> : null}
@@ -657,7 +657,7 @@ function CropHandles({ crop, sx, sy }: { crop: PixelRect; sx: number; sy: number
         <g key={d.h} data-handle={d.h} style={{ cursor: HANDLE_CURSOR[d.h] }} transform={`translate(${d.cx} ${d.cy}) scale(${sx} ${sy})`}>
           {/* invisible grab target, larger than the square */}
           <rect x={-band} y={-band} width={band * 2} height={band * 2} fill="transparent" />
-          <rect x={-half} y={-half} width={half * 2} height={half * 2} fill="#fff" stroke="#0ea5e9" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          <rect x={-half} y={-half} width={half * 2} height={half * 2} fill="#fff" stroke="var(--capture)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
         </g>
       ))}
     </g>
@@ -672,7 +672,7 @@ function SelectionOutline({ bounds, pad }: { bounds: PixelRect; pad: number }) {
       width={bounds.width + pad * 2}
       height={bounds.height + pad * 2}
       fill="none"
-      stroke="#0ea5e9"
+      stroke="var(--capture)"
       strokeWidth={1.5}
       strokeDasharray="4 3"
       vectorEffect="non-scaling-stroke"

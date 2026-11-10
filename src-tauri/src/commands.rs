@@ -44,6 +44,7 @@ pub struct SessionView {
     monitor: MonitorView,
     windows: Vec<WindowCandidate>,
     preview_url: String,
+    initial_crop: Option<crate::geometry::PixelRect>,
 }
 
 #[tauri::command]
@@ -73,6 +74,9 @@ pub fn get_session(
             .cloned()
             .collect(),
         preview_url: protocol::preview_url(&session.id, monitor_index),
+        initial_crop: session.editor_selection()
+            .filter(|s| s.monitor == monitor_index)
+            .map(|s| s.crop),
     })
 }
 
@@ -81,6 +85,10 @@ pub fn overlay_ready(app: AppHandle, session_id: String, monitor_index: usize) -
     let session = app.state::<SessionManager>().get(&session_id)?;
     session.frame(monitor_index)?;
     windows::reveal_overlay(&app, &session, monitor_index);
+    if session.editor_selection().is_some_and(|s| s.monitor == monitor_index) {
+        session.editor_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+        desktop::native_overlay::close(&session.id);
+    }
     Ok(())
 }
 

@@ -50,8 +50,7 @@ pub struct Settings {
     pub auto_select_window: bool,
     /// Mirrors the OS login-item state; the OS is the source of truth.
     pub launch_at_login: bool,
-    /// Experimental (Windows): capture with a native overlay instead of a
-    /// pre-warmed WebView. Lighter while idle; selection and copy only.
+    /// Windows: native selection and copy, with the full editor on demand.
     pub native_overlay: bool,
 }
 
@@ -190,6 +189,13 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"format":"jpeg"}"#).unwrap();
         assert_eq!(s.format, ImageFormat::Jpeg);
         assert_eq!(s.shortcut, DEFAULT_SHORTCUT);
+        assert!(!s.native_overlay, "existing settings use the continuous full editor");
+    }
+
+    #[test]
+    fn native_capture_remains_an_explicit_preference() {
+        let s: Settings = serde_json::from_str(r#"{"nativeOverlay":true}"#).unwrap();
+        assert!(s.native_overlay);
     }
 
     #[test]

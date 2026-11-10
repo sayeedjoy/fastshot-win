@@ -1,8 +1,7 @@
 //! Window management: the settings window (`main`) and one borderless
 //! overlay per monitor (`overlay-{index}`).
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -15,30 +14,11 @@ use crate::error::{AppError, AppResult};
 use crate::geometry::MonitorGeometry;
 use crate::session::{CaptureMode, Session, SessionManager};
 
-#[cfg(target_os = "windows")]
-use ::windows::core::Interface;
-#[cfg(target_os = "windows")]
-use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-    ICoreWebView2_3, ICoreWebView2_19,
-};
-#[cfg(target_os = "windows")]
-use webview2_com::TrySuspendCompletedHandler;
-
 pub const MAIN: &str = "main";
 pub const OVERLAY_PREFIX: &str = "overlay-";
 
-/// Consecutive captures tend to arrive in bursts, so keep overlays fully warm
-/// briefly. Longer idle periods trade a tiny resume cost for lower memory, and
-/// very long ones release the WebViews altogether.
-const OVERLAY_SUSPEND_AFTER: Duration = Duration::from_secs(30);
-const OVERLAY_DESTROY_AFTER: Duration = Duration::from_secs(10 * 60);
-
-/// Invalidates delayed suspend/destroy work whenever overlays become active or
-/// a newer idle period begins. The value is also checked inside the UI-thread
-/// WebView callbacks, closing the race between scheduling and execution.
-static OVERLAY_EPOCH: AtomicU64 = AtomicU64::new(0);
-static OVERLAY_LIFECYCLE_LOCK: Mutex<()> = Mutex::new(());
+// Standard capture windows remain ready for the lifetime of the app.
+// Only per-session pixels and editor state are released between captures.
 
 pub fn is_overlay(label: &str) -> bool {
     label.starts_with(OVERLAY_PREFIX)
@@ -46,6 +26,67 @@ pub fn is_overlay(label: &str) -> bool {
 
 pub fn overlay_label(index: usize) -> String {
     format!("{OVERLAY_PREFIX}{index}")
+}
+
+fn editor_label(session_id: &str, index: usize) -> String {
+    format!("{OVERLAY_PREFIX}editor-{session_id}-{index}")
+}
+
+/// Only the selected monitor gets an editor. Its unique label prevents late
+/// destruction from an earlier capture from interfering with the next one.
+pub fn open_editor<R: Runtime>(app: &AppHandle<R>, session: &std::sync::Arc<Session>, index: usize) -> AppResult<()> {
+    session.frame(index)?;
+    let app2 = app.clone();
+    let id = session.id.clone();
+    let session = session.clone();
+    app.run_on_main_thread(move || {
+        if app2.state::<SessionManager>().get(&session.id).is_err() {
+            return;
+        }
+        let result = (|| -> AppResult<()> {
+            let boot = OverlayBoot {
+                session_id: &session.id,
+                monitor_index: index,
+                mode: session.mode,
+            };
+            let window = build_overlay(&app2, &editor_label(&session.id, index), Some(&boot))?;
+            let g = session.frames[index].geometry;
+            window.set_position(PhysicalPosition::new(g.x, g.y))
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            window.set_size(PhysicalSize::new(g.width, g.height))
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            super::end_capture(&app2, Some(&session.id));
+            show_main(&app2, MainView::Settings, Some(e.to_string()));
+        }
+    }).map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let app = app.clone();
+    // A page that fails to decode or start must never leave capture busy.
+    std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(10));
+            if let Ok(session) = app.state::<SessionManager>().get(&id)
+                && !session.editor_ready.load(Ordering::SeqCst)
+            {
+                super::end_capture(&app, Some(&id));
+                show_main(&app, MainView::Settings, Some("The screenshot editor could not start. Please try capturing again.".into()));
+            }
+    });
+    Ok(())
+}
+
+pub fn overlay_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if let Some(session) = app.state::<SessionManager>().current() {
+        let owns_window = match session.editor_selection() {
+            Some(editor) => label == editor_label(&session.id, editor.monitor),
+            None => (0..session.frames.len()).any(|i| label == overlay_label(i)),
+        };
+        if owns_window {
+            super::end_capture(app, Some(&session.id));
+        }
+    }
 }
 
 /// Which screen of the settings window to open.
@@ -192,7 +233,6 @@ pub fn prewarm_overlays<R: Runtime>(app: &AppHandle<R>) -> AppResult<()> {
             build_overlay(app, &label, None)?;
         }
     }
-    schedule_overlay_idle(app);
     Ok(())
 }
 
@@ -200,12 +240,6 @@ pub fn prewarm_overlays<R: Runtime>(app: &AppHandle<R>) -> AppResult<()> {
 /// The overlay is opaque (it paints the frozen image), so it doesn't rely on
 /// webview transparency behaving the same on both OSes (PRD §8.6).
 pub fn open_overlays<R: Runtime>(app: &AppHandle<R>, session: &Session) -> AppResult<()> {
-    // Serialize a capture start with the eventual UI-thread idle destruction.
-    // Whichever wins makes the other observe the new epoch/window registry.
-    let _lifecycle = OVERLAY_LIFECYCLE_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let epoch = OVERLAY_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
     for (index, frame) in session.frames.iter().enumerate() {
         let label = overlay_label(index);
         let boot = serde_json::to_string(&OverlayBoot {
@@ -216,7 +250,6 @@ pub fn open_overlays<R: Runtime>(app: &AppHandle<R>, session: &Session) -> AppRe
         .map_err(|e| AppError::Internal(e.to_string()))?;
         let window = if let Some(window) = app.get_webview_window(&label) {
             let _ = window.hide();
-            activate_overlay(&window, epoch);
             // Store the payload before dispatching so a listener that mounts
             // during this eval can still read the latest session from window.
             window
@@ -268,7 +301,9 @@ pub fn open_overlays<R: Runtime>(app: &AppHandle<R>, session: &Session) -> AppRe
 
 /// Show an overlay; focus it if it's the one under the cursor.
 pub fn reveal_overlay<R: Runtime>(app: &AppHandle<R>, session: &Session, index: usize) {
-    let Some(w) = app.get_webview_window(&overlay_label(index)) else {
+    let editor = session.editor_selection();
+    let label = if editor.is_some() { editor_label(&session.id, index) } else { overlay_label(index) };
+    let Some(w) = app.get_webview_window(&label) else {
         return;
     };
     if w.is_visible().unwrap_or(false) {
@@ -281,137 +316,26 @@ pub fn reveal_overlay<R: Runtime>(app: &AppHandle<R>, session: &Session, index: 
         let _ = w.set_size(PhysicalSize::new(g.width, g.height));
     }
     let _ = w.show();
-    if index == session.focus_index {
+    if index == editor.map_or(session.focus_index, |e| e.monitor) {
         let _ = w.set_focus();
     }
 }
 
-/// Hide overlays and begin their tiered idle lifecycle.
-///
-/// The page is told the session ended so it unmounts the editor and drops its
-/// decoded frame and edits. The WebView remains fully warm for a short burst,
-/// is then suspended, and is eventually destroyed after a long idle period.
-/// The page ignores the event if it has already moved on to a newer session.
+/// Hide standard overlays while keeping the UI ready. The session-end event
+/// unmounts its editor and releases screenshot data. Native on-demand editors
+/// are destroyed instead because they are specific to a single session.
 pub fn close_overlays<R: Runtime>(app: &AppHandle<R>, session_id: &str) {
     let script = capture_end_script(session_id);
     for (label, w) in app.webview_windows() {
-        if is_overlay(&label) {
+        if label.starts_with(&format!("{OVERLAY_PREFIX}editor-{session_id}-")) {
+            let _ = w.hide();
+            let _ = w.destroy();
+        } else if is_overlay(&label) && !label.starts_with("overlay-editor-") {
             let _ = w.hide();
             let _ = w.eval(&script);
         }
     }
-    schedule_overlay_idle(app);
 }
-
-/// Keep the WebView cache hot for a short capture burst, then let Windows trim
-/// and suspend the hidden renderers. After a long idle period, destroy them so
-/// a tray-only FastShot can return close to its native memory baseline.
-fn schedule_overlay_idle<R: Runtime>(app: &AppHandle<R>) {
-    let epoch = OVERLAY_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(OVERLAY_SUSPEND_AFTER);
-        if !overlay_idle_is_current(&app, epoch) {
-            return;
-        }
-        for (label, window) in app.webview_windows() {
-            if is_overlay(&label) {
-                deactivate_overlay(&window, epoch);
-            }
-        }
-
-        std::thread::sleep(OVERLAY_DESTROY_AFTER - OVERLAY_SUSPEND_AFTER);
-        if !overlay_idle_is_current(&app, epoch) {
-            return;
-        }
-        let app2 = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            let _lifecycle = OVERLAY_LIFECYCLE_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if !overlay_idle_is_current(&app2, epoch) {
-                return;
-            }
-            // Invalidate callbacks queued by this idle period before destruction.
-            OVERLAY_EPOCH.fetch_add(1, Ordering::SeqCst);
-            for (label, window) in app2.webview_windows() {
-                if is_overlay(&label) {
-                    let _ = window.destroy();
-                }
-            }
-        });
-    });
-}
-
-fn overlay_idle_is_current<R: Runtime>(app: &AppHandle<R>, epoch: u64) -> bool {
-    OVERLAY_EPOCH.load(Ordering::SeqCst) == epoch
-        && app.state::<SessionManager>().current().is_none()
-}
-
-#[cfg(target_os = "windows")]
-fn activate_overlay<R: Runtime>(window: &WebviewWindow<R>, epoch: u64) {
-    let _ = window.with_webview(move |webview| {
-        if OVERLAY_EPOCH.load(Ordering::SeqCst) != epoch {
-            return;
-        }
-        // SAFETY: Tauri runs this closure on the WebView UI thread and the COM
-        // interfaces come from the live controller owned by this window.
-        unsafe {
-            let Ok(core) = webview.controller().CoreWebView2() else {
-                return;
-            };
-            if let Ok(suspendable) = core.cast::<ICoreWebView2_3>() {
-                let _ = suspendable.Resume();
-            }
-            if let Ok(memory) = core.cast::<ICoreWebView2_19>() {
-                let _ =
-                    memory.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
-            }
-        }
-    });
-}
-
-#[cfg(not(target_os = "windows"))]
-fn activate_overlay<R: Runtime>(_window: &WebviewWindow<R>, _epoch: u64) {}
-
-#[cfg(target_os = "windows")]
-fn deactivate_overlay<R: Runtime>(window: &WebviewWindow<R>, epoch: u64) {
-    let _ = window.with_webview(move |webview| {
-        if OVERLAY_EPOCH.load(Ordering::SeqCst) != epoch {
-            return;
-        }
-        // SAFETY: see activate_overlay; this also executes on the owning UI thread.
-        unsafe {
-            let Ok(core) = webview.controller().CoreWebView2() else {
-                return;
-            };
-            if let Ok(memory) = core.cast::<ICoreWebView2_19>() {
-                let _ =
-                    memory.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
-            }
-            if let Ok(suspendable) = core.cast::<ICoreWebView2_3>() {
-                // A capture can begin while TrySuspend is still pending. If
-                // that happens, undo a late successful suspension so the new
-                // overlay never waits on a renderer left asleep by stale work.
-                let resume_if_stale = suspendable.clone();
-                let completed =
-                    TrySuspendCompletedHandler::create(Box::new(move |result, did_suspend| {
-                        if result.is_ok()
-                            && did_suspend
-                            && OVERLAY_EPOCH.load(Ordering::SeqCst) != epoch
-                        {
-                            let _ = resume_if_stale.Resume();
-                        }
-                        Ok(())
-                    }));
-                let _ = suspendable.TrySuspend(&completed);
-            }
-        }
-    });
-}
-
-#[cfg(not(target_os = "windows"))]
-fn deactivate_overlay<R: Runtime>(_window: &WebviewWindow<R>, _epoch: u64) {}
 
 fn capture_end_script(session_id: &str) -> String {
     // A JSON string is a valid, fully escaped JS string literal.

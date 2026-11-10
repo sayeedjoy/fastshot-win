@@ -44,6 +44,11 @@ final image.
 - Freeze connected displays into one in-memory capture session
 - Work across multiple monitors and mixed DPI scaling
 - Start a capture from the tray or the global `Ctrl/Cmd+Shift+9` shortcut
+- The full capture editor stays ready in the background, including after long
+  idle periods. Select an area to annotate, redact, copy, or save directly.
+  Screenshot data and edits are cleared when each capture ends.
+- An optional experimental native overlay uses less idle memory on Windows,
+  with a separate **Edit** action for the full editor.
 
 ### Explain visually
 

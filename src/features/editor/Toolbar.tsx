@@ -64,8 +64,7 @@ const EFFECTS: { tool: Tool; label: string; icon: Icon }[] = [
 const mod = isMac ? "⌘" : "Ctrl";
 
 const PANEL = "rounded-md border border-overlay-panel-border bg-overlay-panel p-1 text-overlay-panel-foreground shadow-[0_2px_8px_rgb(0_0_0/0.22)]";
-const TOOL_CONTROL =
-  "text-overlay-panel-foreground hover:bg-overlay-panel-hover hover:text-white focus-visible:border-sky-200/60 focus-visible:ring-sky-200/25 data-[state=on]:bg-overlay-panel-hover data-[state=on]:text-sky-100 aria-pressed:bg-overlay-panel-hover";
+const TOOL_CONTROL = "overlay-control";
 
 function Hint({ label, keys, side, children }: { label: string; keys?: string; side: Side; children: React.ReactNode }) {
   return (
@@ -177,7 +176,7 @@ const ToolColumnBody = memo(function ToolColumnBody({ tipSide }: { tipSide: Side
       <Popover>
         <Hint label="Blur & pixelate" side={tipSide}>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label="Effects" className={cn(TOOL_CONTROL, effectActive && "bg-overlay-panel-hover text-white")}>
+            <Button variant="ghost" size="icon-sm" aria-label="Effects" aria-pressed={!!effectActive} className={TOOL_CONTROL}>
               {effectActive ? <effectActive.icon /> : <Droplets />}
             </Button>
           </PopoverTrigger>
@@ -204,7 +203,7 @@ const ToolColumnBody = memo(function ToolColumnBody({ tipSide }: { tipSide: Side
         <Hint label="Colour & size" side={tipSide}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="Colour and size" className={TOOL_CONTROL}>
-              <span className="size-4 rounded-sm border border-white/20" style={{ background: swatch }} />
+              <span className="size-4 rounded-sm border border-overlay-panel-border" style={{ background: swatch }} />
             </Button>
           </PopoverTrigger>
         </Hint>
@@ -213,7 +212,7 @@ const ToolColumnBody = memo(function ToolColumnBody({ tipSide }: { tipSide: Side
         </PopoverContent>
       </Popover>
 
-      <Separator className="my-0.5 w-5 bg-white/15" />
+      <Separator className="my-0.5 w-5 bg-overlay-panel-separator" />
 
       <Hint label="Undo" keys={`${mod}+Z`} side={tipSide}>
         <Button variant="ghost" size="icon-sm" onClick={undo} disabled={!canUndo} aria-label="Undo" className={TOOL_CONTROL}>
@@ -270,14 +269,14 @@ const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, reading, onCo
             <Zap />
           </Button>
         </Hint>
-        <Hint label="Save as…" keys={`${mod}+S`} side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onSave} disabled={busy} aria-label="Save as" className={TOOL_CONTROL}>
-            <Save />
-          </Button>
-        </Hint>
         <Hint label="Copy text (OCR)" keys={isMac ? "⌘+⇧+C" : "Ctrl+Shift+C"} side={tipSide}>
           <Button variant="ghost" size="icon-sm" onClick={onCopyText} disabled={busy} aria-label="Copy text" className={TOOL_CONTROL}>
             {reading ? <LoaderCircle className="animate-spin" /> : <ScanText />}
+          </Button>
+        </Hint>
+        <Hint label="Save as…" keys={`${mod}+S`} side={tipSide}>
+          <Button variant="ghost" size="icon-sm" onClick={onSave} disabled={busy} aria-label="Save as" className={TOOL_CONTROL}>
+            <Save />
           </Button>
         </Hint>
         <Hint label="Copy to clipboard" keys={`${mod}+C`} side={tipSide}>
@@ -285,9 +284,9 @@ const ActionBarBody = memo(function ActionBarBody({ tipSide, busy, reading, onCo
             {busy && !reading ? <Check /> : <Copy />}
           </Button>
         </Hint>
-        <Separator orientation="vertical" className="mx-0.5 h-5 bg-white/15" />
+        <Separator orientation="vertical" className="mx-0.5 h-5 bg-overlay-panel-separator" />
         <Hint label="Close" keys="Esc" side={tipSide}>
-          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Close" className={cn(TOOL_CONTROL, "text-sky-200 hover:text-white")}>
+          <Button variant="ghost" size="icon-sm" onClick={onCancel} aria-label="Close" className={TOOL_CONTROL}>
             <X />
           </Button>
         </Hint>

@@ -1,8 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import { snapCrop, useCapture, windowAt } from "./store";
+import type { SessionView } from "@/shared/ipc";
 
 describe("capture lifecycle", () => {
+  const session: SessionView = {
+    sessionId: "native-session", monitorIndex: 1, monitorCount: 2, mode: "region",
+    monitor: { name: "Second display", isPrimary: false, scaleFactor: 1.5, pixelWidth: 2560, pixelHeight: 1440 },
+    windows: [], previewUrl: "fastshot://preview/native-session/1",
+  };
+
+  it("opens the full editor at the native selection without selecting again", () => {
+    const crop = { x: 143, y: 82, width: 713, height: 411 };
+    useCapture.getState().reset();
+    useCapture.getState().setSession({ ...session, initialCrop: crop });
+    expect(useCapture.getState()).toMatchObject({ crop, phase: "editing" });
+    useCapture.getState().reset();
+    expect(useCapture.getState()).toMatchObject({ crop: null, session: null });
+  });
+
+  it("starts ordinary captures in selection mode without a stale native crop", () => {
+    useCapture.getState().setCrop({ x: 1, y: 2, width: 3, height: 4 });
+    useCapture.getState().setSession(session);
+    expect(useCapture.getState()).toMatchObject({ crop: null, phase: "selecting" });
+  });
   it("clears stale UI state when a warm overlay starts a new session", () => {
     const state = useCapture.getState();
     state.setMode("window");

@@ -1239,7 +1239,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tiny-skia",
  "uuid",
- "webview2-com",
  "windows",
  "xcap",
 ]

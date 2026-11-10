@@ -1,13 +1,12 @@
-//! Experimental native capture overlay (Windows).
+//! Native capture overlay with an on-demand editor (Windows).
 //!
 //! The WebView overlay must be pre-warmed to open instantly, which keeps a
 //! renderer process alive while FastShot idles in the tray. This overlay is a
 //! plain OS window drawn with GDI instead: it is created when a capture starts
 //! and destroyed when it ends, so nothing is retained between captures.
 //!
-//! Scope (prototype): region drag, window/display picking, copy image, copy
-//! text (OCR), cancel. The full editor (annotations, redaction, save) is only
-//! in the WebView overlay, which remains the default and the macOS path.
+//! Region drag, window/display picking, copy image, copy text (OCR), cancel.
+//! Edit opens the full WebView editor using the same frozen session and crop.
 //! Output goes through the same `render_export` compositor (SEC-04).
 
 use std::sync::Arc;
@@ -28,6 +27,7 @@ mod win32;
 /// What the user asked for. `crop` is in the monitor's image pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    Edit { monitor: usize, crop: PixelRect },
     Copy { monitor: usize, crop: PixelRect },
     CopyText { monitor: usize, crop: PixelRect },
     Cancel,
@@ -87,6 +87,14 @@ fn handle<R: Runtime>(app: &AppHandle<R>, session: &Arc<Session>, action: Action
     let app = app.clone();
     let session = session.clone();
     std::thread::spawn(move || match action {
+        Action::Edit { monitor, crop } => {
+            let result = session.request_editor(monitor, crop)
+                .and_then(|()| windows::open_editor(&app, &session, monitor));
+            if let Err(e) = result {
+                desktop::end_capture(&app, Some(&session.id));
+                windows::show_main(&app, windows::MainView::Settings, Some(e.to_string()));
+            }
+        }
         Action::Cancel => desktop::end_capture(&app, Some(&session.id)),
         Action::Copy { monitor, crop } => {
             // Like the WebView copy: dismiss first so it feels instant. The

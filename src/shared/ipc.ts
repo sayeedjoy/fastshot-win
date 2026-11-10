@@ -23,7 +23,7 @@ export interface Settings {
   showMagnifier: boolean;
   autoSelectWindow: boolean;
   launchAtLogin: boolean;
-  /** Experimental, Windows only: native capture overlay (selection + copy). */
+  /** Windows: native selection with the full editor loaded on demand. */
   nativeOverlay: boolean;
 }
 
@@ -53,6 +53,7 @@ export interface SessionView {
   };
   windows: WindowCandidate[];
   previewUrl: string;
+  initialCrop?: PixelRect | null;
 }
 
 export type Destination = "clipboard" | "file" | "quicksave";

@@ -79,8 +79,8 @@ pub fn run() {
             // Pay WebView startup cost while idle. Captures can then reuse and
             // reveal these hidden overlays instead of creating them on demand.
             // With the native overlay there is nothing to pre-warm.
-            if desktop::native_overlay::enabled(&handle) {
-            } else if let Err(e) = windows::prewarm_overlays(&handle) {
+            if !desktop::native_overlay::enabled(&handle)
+                && let Err(e) = windows::prewarm_overlays(&handle) {
                 eprintln!("FastShot could not pre-warm capture overlays: {e}");
             }
             Ok(())
@@ -98,7 +98,7 @@ pub fn run() {
             WindowEvent::Destroyed if windows::is_overlay(window.label()) => {
                 // An overlay vanished without us closing it (e.g. a display was
                 // disconnected): end the whole session so nothing is left stuck.
-                desktop::end_capture(window.app_handle(), None);
+                windows::overlay_destroyed(window.app_handle(), window.label());
             }
             _ => {}
         })
